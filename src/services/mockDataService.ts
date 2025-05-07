@@ -39,10 +39,26 @@ export const mockNextInstruction = (): RouteInstruction => ({
 });
 
 export const mockDetectedObjects = (): DetectedObject[] => {
-  const types = ['Pedestrian', 'Car', 'Bike', 'Truck', 'Traffic Light', 'Stop Sign', 'Person'];
-  return types.map(type => ({
+  // Common objects on the road
+  const commonObjectTypes = [
+    'Car', 'Pedestrian', 'Truck', 'Bus', 'Bicycle', 
+    'Traffic Light', 'Stop Sign', 'Person', 'Motorcycle'
+  ];
+  
+  // Generate a random number of objects to detect (2-7 objects)
+  const numObjectsToDetect = Math.floor(Math.random() * 5) + 2;
+  
+  // Select random objects from the list
+  const selectedObjects = new Set<string>();
+  while (selectedObjects.size < numObjectsToDetect) {
+    const randomIndex = Math.floor(Math.random() * commonObjectTypes.length);
+    selectedObjects.add(commonObjectTypes[randomIndex]);
+  }
+  
+  // Convert selected objects to DetectedObject array with random counts
+  return Array.from(selectedObjects).map(type => ({
     type,
-    count: Math.floor(Math.random() * 5) // Random count between 0 and 4
+    count: Math.floor(Math.random() * 4) + 1 // Random count between 1 and 4
   }));
 };
 
