@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -35,19 +36,12 @@
     --radius: 0.5rem;
 
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -97,5 +91,27 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .navigation-panel {
+    @apply bg-black/70 backdrop-blur-sm text-white rounded-md p-4 shadow-lg;
+  }
+  
+  .navigation-indicator {
+    @apply flex items-center gap-2 font-medium;
+  }
+  
+  .navigation-value {
+    @apply text-sm font-normal text-gray-300;
+  }
+  
+  .emergency-alert {
+    @apply bg-emergency/90 text-white p-3 rounded-md shadow-lg animate-pulse font-bold;
+  }
+  
+  .warning-alert {
+    @apply bg-warning/90 text-white p-3 rounded-md shadow-lg font-bold;
   }
 }
