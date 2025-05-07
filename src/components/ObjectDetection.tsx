@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { useNavigation } from '@/context/NavigationContext';
+import { AlertCircle, Car, User, Truck, Bus, Bike } from 'lucide-react';
 
 interface ObjectDetectionProps {
   className?: string;
@@ -12,7 +13,7 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
 
   // Group objects by potential risk
   const highRiskObjects = detectedObjects.filter(obj => 
-    ['person', 'bicycle', 'motorcycle'].includes(obj.type.toLowerCase())
+    ['person', 'bicycle', 'motorcycle', 'pedestrian'].includes(obj.type.toLowerCase())
   );
   
   const mediumRiskObjects = detectedObjects.filter(obj => 
@@ -20,21 +21,20 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
   );
   
   const lowRiskObjects = detectedObjects.filter(obj => 
-    !['person', 'bicycle', 'motorcycle', 'car', 'truck', 'bus', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
+    !['person', 'pedestrian', 'bicycle', 'motorcycle', 'car', 'truck', 'bus', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
   );
 
   // Helper function to determine object icon
   const getObjectIcon = (type: string) => {
     const lowerType = type.toLowerCase();
-    if (lowerType === 'person') return '👤';
-    if (lowerType === 'car') return '🚗';
-    if (lowerType === 'truck') return '🚚';
-    if (lowerType === 'bus') return '🚌';
-    if (lowerType === 'bicycle') return '🚲';
-    if (lowerType === 'motorcycle') return '🏍️';
+    if (lowerType === 'person' || lowerType === 'pedestrian') return <User className="w-5 h-5" />;
+    if (lowerType === 'car') return <Car className="w-5 h-5" />;
+    if (lowerType === 'truck') return <Truck className="w-5 h-5" />;
+    if (lowerType === 'bus') return <Bus className="w-5 h-5" />;
+    if (lowerType === 'bicycle' || lowerType === 'bike') return <Bike className="w-5 h-5" />;
     if (lowerType === 'traffic light') return '🚦';
     if (lowerType === 'stop sign') return '🛑';
-    return '📦';
+    return <AlertCircle className="w-5 h-5" />;
   };
 
   return (

@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
   NavigationState,
@@ -9,7 +8,8 @@ import {
   LaneOffset,
   EmergencyStatus,
   WeatherInfo,
-  CO2Savings
+  CO2Savings,
+  EmergencyLevel
 } from '../types/navigation';
 import { 
   mockRoute, 
@@ -68,6 +68,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
     // Initial setup
     if (!navigationState.isRouteSet) {
       const route = mockRoute();
+      const detectedObjects = mockDetectedObjects();
+      
       setNavigationState(prev => ({
         ...prev,
         isRouteSet: true,
@@ -75,7 +77,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         nextInstruction: route.instructions[0],
         distanceToNextInstruction: 200,
         weather: mockWeatherInfo(),
-        co2Savings: mockCO2Savings()
+        co2Savings: mockCO2Savings(),
+        detectedObjects: detectedObjects
       }));
       
       toast({
@@ -84,31 +87,14 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       });
     }
 
-    const interval = setInterval(() => {
+    // Main interval for regular updates
+    const mainInterval = setInterval(() => {
       // Update location
       const newLocation = getUpdatedLocation(navigationState.currentLocation);
       
       // Update lane offset
       const newLaneOffset = mockLaneOffset();
       
-      // Update detected objects randomly (less frequently)
-      const newDetectedObjects = Math.random() > 0.7 
-        ? mockDetectedObjects() 
-        : navigationState.detectedObjects;
-      
-      // Update emergency status
-      const newEmergencyStatus = mockEmergencyStatus();
-      
-      // If emergency status changes to critical from not critical
-      if (newEmergencyStatus.level === "critical" && 
-          navigationState.emergencyStatus.level !== "critical") {
-        toast({
-          variant: "destructive",
-          title: "Emergency Alert",
-          description: newEmergencyStatus.response || "Critical situation detected",
-        });
-      }
-
       // Update next instruction randomly (less frequently)
       const shouldUpdateInstruction = Math.random() > 0.9;
       const newInstruction = shouldUpdateInstruction ? mockNextInstruction() : navigationState.nextInstruction;
@@ -131,16 +117,43 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         currentLocation: newLocation,
         nextInstruction: newInstruction,
         distanceToNextInstruction: newDistance,
-        detectedObjects: newDetectedObjects,
         laneOffset: newLaneOffset,
-        emergencyStatus: newEmergencyStatus,
         weather: newWeather,
         co2Savings: newSavings
       }));
     }, 1000);
+    
+    // Separate interval for object detection and emergency statuses
+    // This ensures these critical items update more consistently
+    const objectDetectionInterval = setInterval(() => {
+      // Update detected objects with higher frequency for better simulation
+      const newDetectedObjects = mockDetectedObjects();
+      
+      // Update emergency status
+      const newEmergencyStatus = mockEmergencyStatus();
+      
+      // If emergency status changes to critical from not critical
+      if (newEmergencyStatus.level === "critical" && 
+          navigationState.emergencyStatus.level !== "critical") {
+        toast({
+          variant: "destructive",
+          title: "Emergency Alert",
+          description: newEmergencyStatus.response || "Critical situation detected",
+        });
+      }
+      
+      setNavigationState(prev => ({
+        ...prev,
+        detectedObjects: newDetectedObjects,
+        emergencyStatus: newEmergencyStatus
+      }));
+    }, 3000); // Update every 3 seconds
 
-    return () => clearInterval(interval);
-  }, [isNavigating, navigationState.isRouteSet, toast]);
+    return () => {
+      clearInterval(mainInterval);
+      clearInterval(objectDetectionInterval);
+    };
+  }, [isNavigating, navigationState.isRouteSet, toast, navigationState.emergencyStatus.level, navigationState.currentLocation, navigationState.distanceToNextInstruction, navigationState.co2Savings]);
 
   const setCurrentLocation = (location: Location) => {
     setNavigationState(prev => ({

@@ -1,3 +1,4 @@
+
 import { 
   Location,
   Route,
@@ -6,7 +7,9 @@ import {
   LaneOffset,
   EmergencyStatus,
   WeatherInfo,
-  CO2Savings
+  CO2Savings,
+  EmergencyTrigger,
+  EmergencyLevel
 } from '../types/navigation';
 
 // Mock data - replace with real data from APIs or other sources
@@ -36,7 +39,7 @@ export const mockNextInstruction = (): RouteInstruction => ({
 });
 
 export const mockDetectedObjects = (): DetectedObject[] => {
-  const types = ['Pedestrian', 'Car', 'Bike', 'Truck'];
+  const types = ['Pedestrian', 'Car', 'Bike', 'Truck', 'Traffic Light', 'Stop Sign', 'Person'];
   return types.map(type => ({
     type,
     count: Math.floor(Math.random() * 5) // Random count between 0 and 4
@@ -64,7 +67,7 @@ export const mockEmergencyStatus = (): EmergencyStatus => {
   
   const triggers = active && level !== "none" ? [{
     type: "Speed",
-    level: "warning",
+    level: level as EmergencyLevel, // Ensure we're using the correct type
     details: "Speed exceeding limit"
   }] : [];
   
@@ -79,8 +82,6 @@ export const mockEmergencyStatus = (): EmergencyStatus => {
     initiate_call: active && level === "critical" ? Math.random() > 0.5 : undefined
   };
 };
-
-type EmergencyLevel = "none" | "warning" | "critical";
 
 export const mockWeatherInfo = (): WeatherInfo => ({
   temperature: Math.floor(Math.random() * 30), // Random temperature between 0 and 30

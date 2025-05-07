@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Upload } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
 
 // Mock video URL - this would normally be a real video stream or webcam feed
 const MOCK_VIDEO_URL = "https://static.videezy.com/system/resources/previews/000/037/754/original/main.mp4";
@@ -16,6 +17,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const [error, setError] = useState<string | null>(null);
   const [videoSrc, setVideoSrc] = useState<string>(MOCK_VIDEO_URL);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -26,10 +28,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     const handleCanPlay = () => {
       setIsLoaded(true);
       setError(null);
+      console.log("Video can play now");
     };
     
     // Handle errors
-    const handleError = () => {
+    const handleError = (e: Event) => {
+      console.error("Video error:", e);
       setError("Error loading video feed. Using fallback display.");
       setIsLoaded(false);
     };
@@ -54,10 +58,24 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      // Check if the file is a video
+      if (!file.type.startsWith('video/')) {
+        toast({
+          title: "Invalid file type",
+          description: "Please select a video file.",
+          variant: "destructive"
+        });
+        return;
+      }
+
       const url = URL.createObjectURL(file);
       setVideoSrc(url);
       setIsLoaded(false);
       setError(null);
+      toast({
+        title: "Video uploaded",
+        description: `Now playing: ${file.name}`,
+      });
     }
   };
 
