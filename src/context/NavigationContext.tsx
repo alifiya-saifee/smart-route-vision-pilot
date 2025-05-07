@@ -27,6 +27,7 @@ import { useToast } from '@/components/ui/use-toast';
 
 interface NavigationContextType {
   navigationState: NavigationState;
+  setCurrentLocation: (location: Location) => void;
   setDestination: (destination: Location) => void;
   startNavigation: () => void;
   stopNavigation: () => void;
@@ -70,8 +71,6 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       setNavigationState(prev => ({
         ...prev,
         isRouteSet: true,
-        currentLocation: mockCurrentLocation(),
-        destination: mockDestination(),
         route: route,
         nextInstruction: route.instructions[0],
         distanceToNextInstruction: 200,
@@ -87,7 +86,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
 
     const interval = setInterval(() => {
       // Update location
-      const newLocation = getUpdatedLocation();
+      const newLocation = getUpdatedLocation(navigationState.currentLocation);
       
       // Update lane offset
       const newLaneOffset = mockLaneOffset();
@@ -143,11 +142,26 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
     return () => clearInterval(interval);
   }, [isNavigating, navigationState.isRouteSet, toast]);
 
+  const setCurrentLocation = (location: Location) => {
+    setNavigationState(prev => ({
+      ...prev,
+      currentLocation: location
+    }));
+    toast({
+      title: "Current Location Set",
+      description: `Location set to ${location.lat.toFixed(4)}, ${location.lon.toFixed(4)}`,
+    });
+  };
+
   const setDestination = (destination: Location) => {
     setNavigationState(prev => ({
       ...prev,
       destination
     }));
+    toast({
+      title: "Destination Set",
+      description: `Destination set to ${destination.lat.toFixed(4)}, ${destination.lon.toFixed(4)}`,
+    });
   };
 
   const startNavigation = () => {
@@ -156,7 +170,11 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
 
   const stopNavigation = () => {
     setIsNavigating(false);
-    setNavigationState(initialState);
+    setNavigationState(prev => ({
+      ...initialState,
+      currentLocation: prev.currentLocation,
+      destination: prev.destination,
+    }));
     toast({
       title: "Navigation Ended",
       description: "You've completed your journey",
@@ -166,6 +184,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   return (
     <NavigationContext.Provider value={{ 
       navigationState, 
+      setCurrentLocation,
       setDestination, 
       startNavigation, 
       stopNavigation,

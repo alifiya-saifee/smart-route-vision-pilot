@@ -1,5 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Upload } from 'lucide-react';
 
 // Mock video URL - this would normally be a real video stream or webcam feed
 const MOCK_VIDEO_URL = "https://static.videezy.com/system/resources/previews/000/037/754/original/main.mp4";
@@ -12,6 +14,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [videoSrc, setVideoSrc] = useState<string>(MOCK_VIDEO_URL);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -45,13 +49,27 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       videoElement.removeEventListener('canplay', handleCanPlay);
       videoElement.removeEventListener('error', handleError);
     };
-  }, []);
+  }, [videoSrc]);
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setVideoSrc(url);
+      setIsLoaded(false);
+      setError(null);
+    }
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
 
   return (
     <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}>
       <video
         ref={videoRef}
-        src={MOCK_VIDEO_URL}
+        src={videoSrc}
         loop
         muted
         playsInline
@@ -75,6 +93,25 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
           )}
         </div>
       )}
+
+      <div className="absolute top-4 right-4 z-10">
+        <Button 
+          onClick={triggerFileInput} 
+          variant="secondary" 
+          size="sm" 
+          className="bg-black/50 hover:bg-black/70"
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          Upload Video
+        </Button>
+        <input 
+          ref={fileInputRef}
+          type="file" 
+          accept="video/*" 
+          onChange={handleFileUpload} 
+          className="hidden" 
+        />
+      </div>
     </div>
   );
 };
