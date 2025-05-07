@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import { AlertCircle, Car, User, Truck, Bus, Bike, TrafficLight, StopSign, Box } from 'lucide-react';
+import { AlertCircle, Car, User, Truck, Bus, Bike, CircleAlert, Octagon, Box } from 'lucide-react';
 import { DetectedObject } from '@/types/navigation';
 
 interface ObjectDetectionProps {
@@ -34,8 +34,8 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
     if (lowerType === 'truck') return <Truck className="w-5 h-5" />;
     if (lowerType === 'bus') return <Bus className="w-5 h-5" />;
     if (lowerType === 'bicycle' || lowerType === 'bike') return <Bike className="w-5 h-5" />;
-    if (lowerType === 'traffic light') return <TrafficLight className="w-5 h-5" />;
-    if (lowerType === 'stop sign') return <StopSign className="w-5 h-5" />;
+    if (lowerType === 'traffic light') return <CircleAlert className="w-5 h-5" />; // Replaced with CircleAlert
+    if (lowerType === 'stop sign') return <Octagon className="w-5 h-5" />; // Replaced with Octagon
     return <Box className="w-5 h-5" />;
   };
   
