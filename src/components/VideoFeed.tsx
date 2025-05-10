@@ -21,14 +21,17 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const [videoSrc, setVideoSrc] = useState<string>(MOCK_VIDEO_URL);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [objectDetectionEnabled, setObjectDetectionEnabled] = useState(false);
-  const [yoloApiKey, setYoloApiKey] = useState<string>(() => {
-    return localStorage.getItem('yoloApiKey') || '';
+  const [mapApiKey, setMapApiKey] = useState<string>(() => {
+    return localStorage.getItem('mapApiKey') || '';
   });
-  const [showYoloApiInput, setShowYoloApiInput] = useState<boolean>(!localStorage.getItem('yoloApiKey'));
+  const [showMapApiInput, setShowMapApiInput] = useState<boolean>(!localStorage.getItem('mapApiKey'));
   const { toast } = useToast();
   const { updateDetectedObjects } = useNavigation();
   const [detectFrameCount, setDetectFrameCount] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [modelLoaded, setModelLoaded] = useState(false);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [detector, setDetector] = useState<any>(null);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -79,9 +82,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     let animationFrameId: number;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const context = canvas.getContext('2d');
     
-    if (!ctx) return;
+    if (!context) return;
     
     // Process every Nth frame to reduce load
     let frameCount = 0;
@@ -89,14 +92,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     
     const processFrame = () => {
       // Draw the current video frame on the canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
       frameCount++;
       setDetectFrameCount(frameCount);
       
       // Only run detection periodically to reduce load
       if (frameCount % detectEveryNFrames === 0 && !processing) {
-        runObjectDetection(canvas);
+        runObjectDetection(canvas, context);
       }
       
       animationFrameId = requestAnimationFrame(processFrame);
@@ -109,32 +112,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     };
   }, [objectDetectionEnabled, isLoaded, processing]);
 
-  // Function to simulate object detection
-  // In a real implementation, this would call a YOLO model API
-  const runObjectDetection = async (canvas: HTMLCanvasElement) => {
-    const apiKey = localStorage.getItem('yoloApiKey');
-    if (!apiKey) return;
+  // Function for object detection simulation
+  const runObjectDetection = async (canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) => {
+    if (!objectDetectionEnabled) return;
     
     setProcessing(true);
     
     try {
-      // This would be a real API call to a YOLO service
-      // For now, we'll simulate a detection with random objects
-      
-      // In a real implementation, you'd:
-      // 1. Get the canvas image data
-      // const imageData = canvas.toDataURL('image/jpeg', 0.8);
-      
-      // 2. Send to API
-      // const response = await fetch('https://your-yolo-api.com/detect', {
-      //   method: 'POST',
-      //   headers: { 
-      //     'Authorization': `Bearer ${apiKey}`,
-      //     'Content-Type': 'application/json'
-      //   },
-      //   body: JSON.stringify({ image: imageData })
-      // });
-      // const data = await response.json();
+      // For now, we'll simulate object detection with random objects
+      // In a production app, this would use an actual YOLO or similar model
       
       // Simulate API response delay
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -156,7 +142,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       simulatedObjects.forEach(obj => {
         // In a real implementation, we'd use actual coordinates from the API
         // For simulation, we'll draw boxes in random positions
-        drawSimulatedBox(ctx, canvas.width, canvas.height, obj.type);
+        drawSimulatedBox(context, canvas.width, canvas.height, obj.type);
       });
       
       // Update navigation context with detected objects
@@ -239,14 +225,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     fileInputRef.current?.click();
   };
 
-  const handleSaveYoloApiKey = () => {
-    if (yoloApiKey.trim()) {
-      localStorage.setItem('yoloApiKey', yoloApiKey);
-      setShowYoloApiInput(false);
-      setObjectDetectionEnabled(true);
+  const handleSaveMapApiKey = () => {
+    if (mapApiKey.trim()) {
+      localStorage.setItem('mapApiKey', mapApiKey);
+      setShowMapApiInput(false);
       toast({
         title: "API key saved",
-        description: "Object detection has been enabled"
+        description: "Map API key has been saved successfully"
       });
     } else {
       toast({
@@ -258,17 +243,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   };
 
   const toggleObjectDetection = () => {
-    if (!localStorage.getItem('yoloApiKey')) {
-      setShowYoloApiInput(true);
-      return;
-    }
-    
     setObjectDetectionEnabled(!objectDetectionEnabled);
     toast({
       title: objectDetectionEnabled ? "Object Detection Disabled" : "Object Detection Enabled",
       description: objectDetectionEnabled ? 
-        "YOLO object detection has been turned off" : 
-        "YOLO object detection is now active"
+        "Object detection has been turned off" : 
+        "Object detection is now active"
     });
   };
 
@@ -309,25 +289,25 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         </div>
       )}
 
-      {/* YOLO API key input modal */}
-      {showYoloApiInput && (
+      {/* Map API key input modal */}
+      {showMapApiInput && (
         <div className="absolute inset-0 bg-gray-900/90 flex items-center justify-center z-20 p-4">
           <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Object Detection API Key</h3>
+            <h3 className="text-lg font-medium mb-4">Map API Key</h3>
             <p className="text-sm text-gray-400 mb-4">
-              Please enter your YOLO API key to enable object detection
+              Please enter your Google Maps API key to enable route visualization
             </p>
             <Input
-              value={yoloApiKey}
-              onChange={(e) => setYoloApiKey(e.target.value)}
-              placeholder="Enter YOLO API Key"
+              value={mapApiKey}
+              onChange={(e) => setMapApiKey(e.target.value)}
+              placeholder="Enter Google Maps API Key"
               className="mb-4"
             />
             <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setShowYoloApiInput(false)}>
+              <Button variant="outline" onClick={() => setShowMapApiInput(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSaveYoloApiKey} className="bg-navigation">
+              <Button onClick={handleSaveMapApiKey} className="bg-navigation">
                 Save & Enable
               </Button>
             </div>
