@@ -8,6 +8,7 @@ import ObjectDetection from '@/components/ObjectDetection';
 import EmergencyAlert from '@/components/EmergencyAlert';
 import WeatherAndEco from '@/components/WeatherAndEco';
 import RouteControls from '@/components/RouteControls';
+import RouteMap from '@/components/RouteMap';
 
 const Index = () => {
   return (
@@ -38,10 +39,14 @@ const Index = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <WeatherAndEco />
-            <div className="navigation-panel flex items-center justify-center">
-              <RouteControls />
+            <div className="h-64">
+              <RouteMap />
             </div>
+            <WeatherAndEco />
+          </div>
+
+          <div className="navigation-panel flex items-center justify-center mb-6">
+            <RouteControls />
           </div>
         </div>
       </div>

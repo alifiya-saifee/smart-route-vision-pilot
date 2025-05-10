@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
   NavigationState,
@@ -32,6 +33,7 @@ interface NavigationContextType {
   startNavigation: () => void;
   stopNavigation: () => void;
   isNavigating: boolean;
+  updateDetectedObjects: (objects: DetectedObject[]) => void;
 }
 
 const initialState: NavigationState = {
@@ -59,6 +61,7 @@ const NavigationContext = createContext<NavigationContextType | undefined>(undef
 export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [navigationState, setNavigationState] = useState<NavigationState>(initialState);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [useAutoDetection, setUseAutoDetection] = useState(false);
   const { toast } = useToast();
 
   // Update simulation at regular intervals when navigating
@@ -68,7 +71,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
     // Initial setup
     if (!navigationState.isRouteSet) {
       const route = mockRoute();
-      const detectedObjects = mockDetectedObjects();
+      const detectedObjects = useAutoDetection ? [] : mockDetectedObjects();
       
       setNavigationState(prev => ({
         ...prev,
@@ -123,11 +126,10 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       }));
     }, 1000);
     
-    // Separate interval for object detection and emergency statuses
-    // This ensures these critical items update more consistently
+    // Separate interval for emergency statuses and mock object detection if not using auto detection
     const objectDetectionInterval = setInterval(() => {
-      // Update detected objects with higher frequency for better simulation
-      const newDetectedObjects = mockDetectedObjects();
+      // Only use mock objects if not using auto detection
+      const newDetectedObjects = useAutoDetection ? navigationState.detectedObjects : mockDetectedObjects();
       
       // Update emergency status
       const newEmergencyStatus = mockEmergencyStatus();
@@ -144,8 +146,9 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       
       setNavigationState(prev => ({
         ...prev,
-        detectedObjects: newDetectedObjects,
-        emergencyStatus: newEmergencyStatus
+        emergencyStatus: newEmergencyStatus,
+        // Only update detected objects if not using auto detection
+        ...(useAutoDetection ? {} : { detectedObjects: newDetectedObjects })
       }));
     }, 3000); // Update every 3 seconds
 
@@ -153,7 +156,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       clearInterval(mainInterval);
       clearInterval(objectDetectionInterval);
     };
-  }, [isNavigating, navigationState.isRouteSet, toast, navigationState.emergencyStatus.level, navigationState.currentLocation, navigationState.distanceToNextInstruction, navigationState.co2Savings]);
+  }, [isNavigating, navigationState.isRouteSet, toast, navigationState.emergencyStatus.level, navigationState.currentLocation, navigationState.distanceToNextInstruction, navigationState.co2Savings, navigationState.detectedObjects, useAutoDetection]);
 
   const setCurrentLocation = (location: Location) => {
     setNavigationState(prev => ({
@@ -193,6 +196,14 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       description: "You've completed your journey",
     });
   };
+  
+  const updateDetectedObjects = (objects: DetectedObject[]) => {
+    setUseAutoDetection(true);
+    setNavigationState(prev => ({
+      ...prev,
+      detectedObjects: objects
+    }));
+  };
 
   return (
     <NavigationContext.Provider value={{ 
@@ -201,7 +212,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       setDestination, 
       startNavigation, 
       stopNavigation,
-      isNavigating
+      isNavigating,
+      updateDetectedObjects
     }}>
       {children}
     </NavigationContext.Provider>
