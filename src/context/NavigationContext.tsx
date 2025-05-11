@@ -66,6 +66,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   const [useAutoDetection, setUseAutoDetection] = useState(false);
   const { toast } = useToast();
   const startTimeRef = React.useRef<number>(Date.now());
+  const lastCO2UpdateTime = React.useRef<number>(Date.now());
+  const totalDriveTimeRef = React.useRef<number>(0);
 
   // Update simulation at regular intervals when navigating
   useEffect(() => {
@@ -88,6 +90,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       }));
       
       startTimeRef.current = Date.now();
+      lastCO2UpdateTime.current = Date.now();
+      totalDriveTimeRef.current = 0;
       
       toast({
         title: "Navigation Started",
@@ -173,6 +177,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   const startNavigation = () => {
     setIsNavigating(true);
     startTimeRef.current = Date.now();
+    lastCO2UpdateTime.current = Date.now();
+    totalDriveTimeRef.current = 0;
   };
 
   const stopNavigation = () => {
@@ -204,17 +210,23 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   };
   
   const updateCO2Savings = () => {
-    // Calculate CO2 savings based on time elapsed and some variables
-    const timeElapsed = (Date.now() - startTimeRef.current) / 1000; // seconds
+    // Get current time
+    const now = Date.now();
+    
+    // Calculate elapsed time since last update (in seconds)
+    const elapsedSinceLastUpdate = (now - lastCO2UpdateTime.current) / 1000;
+    
+    // Update total drive time
+    totalDriveTimeRef.current += elapsedSinceLastUpdate;
     
     // Base rate of CO2 savings per second (in kg)
-    const baseRate = 0.0005;
+    const baseRate = 0.00015; // Lower value for more realistic numbers
     
-    // Additional factors could be added here (speed, eco-driving, etc.)
-    const savingsFactor = 1.0;
+    // Additional factors - increases with driving time for a more realistic curve
+    const savingsFactor = 1.0 + (totalDriveTimeRef.current / 3600); // Increases the longer we drive
     
     // Calculate new total savings
-    const newTotalKg = baseRate * timeElapsed * savingsFactor;
+    const newTotalKg = baseRate * totalDriveTimeRef.current * savingsFactor;
     
     // Tree equivalence: average tree absorbs about 21kg CO2 per year
     const treesEquivalent = (newTotalKg / 21) * 100; // As percentage of a tree's yearly absorption
@@ -226,6 +238,9 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         treesEquivalent: treesEquivalent
       }
     }));
+    
+    // Update the last update time
+    lastCO2UpdateTime.current = now;
   };
 
   return (

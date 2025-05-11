@@ -9,6 +9,11 @@ import DetectionService from '@/services/DetectionService';
 
 // Mock video URL - this would normally be a real video stream or webcam feed
 const MOCK_VIDEO_URL = "https://static.videezy.com/system/resources/previews/000/037/754/original/main.mp4";
+// Alternative road videos if the primary one fails
+const FALLBACK_VIDEOS = [
+  "https://static.videezy.com/system/resources/previews/000/007/368/original/Highway_Forward_Dashboard.mp4",
+  "https://static.videezy.com/system/resources/previews/000/050/684/original/5.mp4"
+];
 
 interface VideoFeedProps {
   className?: string;
@@ -33,6 +38,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const processingTimerRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(Date.now());
   const co2UpdateInterval = useRef<number | null>(null);
+  const videoErrorCount = useRef<number>(0);
+  const detectionResultsRef = useRef<any>({ objects: [], lanes: { offset: 0, direction: 'Center' } });
 
   useEffect(() => {
     // Initialize the detection service when component mounts
@@ -57,7 +64,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       if (objectDetectionEnabled && isLoaded) {
         updateCO2Savings();
       }
-    }, 5000); // Update CO2 every 5 seconds
+    }, 2000); // Update CO2 every 2 seconds when detection is active
 
     return () => {
       // Clean up
@@ -78,8 +85,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       setError(null);
       console.log("Video can play now");
       
-      // Initialize canvas size if object detection is enabled
-      if (objectDetectionEnabled && canvasRef.current && videoElement) {
+      // Initialize canvas size to match video dimensions
+      if (canvasRef.current && videoElement) {
         canvasRef.current.width = videoElement.videoWidth || videoElement.clientWidth;
         canvasRef.current.height = videoElement.videoHeight || videoElement.clientHeight;
       }
@@ -88,8 +95,17 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     // Handle errors
     const handleError = (e: Event) => {
       console.error("Video error:", e);
-      setError("Error loading video feed. Using fallback display.");
-      setIsLoaded(false);
+      videoErrorCount.current += 1;
+      
+      // Try fallback videos if the main one fails
+      if (videoErrorCount.current <= FALLBACK_VIDEOS.length) {
+        const fallbackVideo = FALLBACK_VIDEOS[videoErrorCount.current - 1];
+        console.log(`Trying fallback video #${videoErrorCount.current}:`, fallbackVideo);
+        setVideoSrc(fallbackVideo);
+      } else {
+        setError("Error loading video feed. Using fallback display.");
+        setIsLoaded(false);
+      }
     };
     
     // Register event listeners
@@ -99,7 +115,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     // Start playing the video
     videoElement.play().catch(err => {
       console.error("Video playback error:", err);
-      setError("Video playback not allowed. Using fallback display.");
+      handleError(new Event('error'));
     });
     
     // Clean up event listeners
@@ -107,7 +123,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       videoElement.removeEventListener('canplay', handleCanPlay);
       videoElement.removeEventListener('error', handleError);
     };
-  }, [videoSrc, objectDetectionEnabled]);
+  }, [videoSrc]);
 
   // Handle object detection processing
   useEffect(() => {
@@ -130,7 +146,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       setDetectFrameCount(frameCount);
       
       // Only process every few frames to reduce load
-      if (frameCount % 5 === 0 && !processing) {
+      if (frameCount % 3 === 0 && !processing) {
         setProcessing(true);
         
         // Use the DetectionService to process the current frame
@@ -160,6 +176,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   // Handle detection results
   const handleDetectionResults = (results: any) => {
     const now = Date.now();
+    // Save the latest detection results
+    detectionResultsRef.current = results;
+    
     // Throttle updates to avoid overwhelming the UI
     if (now - lastDetectionTime.current > 100) {
       lastDetectionTime.current = now;
@@ -196,6 +215,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       setVideoSrc(url);
       setIsLoaded(false);
       setError(null);
+      videoErrorCount.current = 0;
       toast({
         title: "Video uploaded",
         description: `Now playing: ${file.name}`,
@@ -232,6 +252,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         "Object detection has been turned off" : 
         "Object detection is now active"
     });
+    
+    // Force CO2 update when detection is toggled on
+    if (!objectDetectionEnabled) {
+      updateCO2Savings();
+    }
   };
 
   return (
@@ -243,13 +268,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         loop
         muted
         playsInline
-        className={`w-full h-full object-cover ${isLoaded && !objectDetectionEnabled ? 'opacity-100' : 'opacity-0'}`}
+        className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
       />
       
       {/* Canvas overlay for object detection */}
       <canvas
         ref={canvasRef}
-        className={`absolute top-0 left-0 w-full h-full object-cover ${isLoaded && objectDetectionEnabled ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute top-0 left-0 w-full h-full object-cover ${objectDetectionEnabled ? 'opacity-100' : 'opacity-0'}`}
       />
       
       {/* Loading/error states */}
