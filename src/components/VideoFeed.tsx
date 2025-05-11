@@ -5,6 +5,7 @@ import { Upload } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { useNavigation } from '@/context/NavigationContext';
+import DetectionService from '@/services/DetectionService';
 
 // Mock video URL - this would normally be a real video stream or webcam feed
 const MOCK_VIDEO_URL = "https://static.videezy.com/system/resources/previews/000/037/754/original/main.mp4";
@@ -26,9 +27,45 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   });
   const [showMapApiInput, setShowMapApiInput] = useState<boolean>(!localStorage.getItem('mapApiKey'));
   const { toast } = useToast();
-  const { updateDetectedObjects } = useNavigation();
+  const { updateDetectedObjects, updateLaneOffset, updateCO2Savings } = useNavigation();
   const [detectFrameCount, setDetectFrameCount] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const processingTimerRef = useRef<number | null>(null);
+  const lastDetectionTime = useRef<number>(Date.now());
+  const co2UpdateInterval = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Initialize the detection service when component mounts
+    const initializeDetection = async () => {
+      try {
+        const status = await DetectionService.initialize();
+        console.log("Detection services initialized:", status);
+      } catch (err) {
+        console.error("Failed to initialize detection:", err);
+        toast({
+          variant: "destructive",
+          title: "Detection Error",
+          description: "Failed to initialize object detection"
+        });
+      }
+    };
+    
+    initializeDetection();
+    
+    // Setup CO2 updating at regular intervals
+    co2UpdateInterval.current = window.setInterval(() => {
+      if (objectDetectionEnabled && isLoaded) {
+        updateCO2Savings();
+      }
+    }, 5000); // Update CO2 every 5 seconds
+
+    return () => {
+      // Clean up
+      if (co2UpdateInterval.current) {
+        clearInterval(co2UpdateInterval.current);
+      }
+    };
+  }, [toast, objectDetectionEnabled, isLoaded, updateCO2Savings]);
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -42,9 +79,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       console.log("Video can play now");
       
       // Initialize canvas size if object detection is enabled
-      if (objectDetectionEnabled && canvasRef.current) {
-        canvasRef.current.width = videoElement.videoWidth;
-        canvasRef.current.height = videoElement.videoHeight;
+      if (objectDetectionEnabled && canvasRef.current && videoElement) {
+        canvasRef.current.width = videoElement.videoWidth || videoElement.clientWidth;
+        canvasRef.current.height = videoElement.videoHeight || videoElement.clientHeight;
       }
     };
     
@@ -74,176 +111,72 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
 
   // Handle object detection processing
   useEffect(() => {
-    if (!objectDetectionEnabled || !isLoaded || !videoRef.current || !canvasRef.current) return;
+    if (!objectDetectionEnabled || !isLoaded || !videoRef.current || !canvasRef.current) {
+      // If detection is disabled, clear any existing processing
+      if (processingTimerRef.current) {
+        cancelAnimationFrame(processingTimerRef.current);
+        processingTimerRef.current = null;
+      }
+      return;
+    }
     
-    let animationFrameId: number;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-    
-    if (!context) return;
-    
-    // Process every Nth frame to reduce load
     let frameCount = 0;
-    const detectEveryNFrames = 30; // Detect objects every 30 frames (about 1-2 seconds at normal FPS)
     
-    const processFrame = () => {
-      // Draw the current video frame on the canvas
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
+    // Process video frames
+    const processVideoFrame = () => {
       frameCount++;
       setDetectFrameCount(frameCount);
       
-      // Only run detection periodically to reduce load
-      if (frameCount % detectEveryNFrames === 0 && !processing) {
-        runObjectDetection(canvas, context);
+      // Only process every few frames to reduce load
+      if (frameCount % 5 === 0 && !processing) {
+        setProcessing(true);
+        
+        // Use the DetectionService to process the current frame
+        try {
+          DetectionService.processVideo(video, canvas, handleDetectionResults);
+        } catch (error) {
+          console.error("Error processing video frame:", error);
+        }
       }
       
-      animationFrameId = requestAnimationFrame(processFrame);
+      // Continue the animation loop
+      processingTimerRef.current = requestAnimationFrame(processVideoFrame);
     };
     
-    processFrame();
+    // Start processing frames
+    processingTimerRef.current = requestAnimationFrame(processVideoFrame);
     
+    // Clean up when disabled or unmounted
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (processingTimerRef.current) {
+        cancelAnimationFrame(processingTimerRef.current);
+        processingTimerRef.current = null;
+      }
     };
   }, [objectDetectionEnabled, isLoaded, processing]);
 
-  // Function for object detection simulation or integration with custom models
-  const runObjectDetection = async (canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) => {
-    if (!objectDetectionEnabled) return;
-    
-    setProcessing(true);
-    
-    try {
-      // Enhanced object detection with traffic-specific classes
-      const trafficObjects = [
-        { type: 'car', count: Math.floor(Math.random() * 5) + 1, confidence: 0.92 },
-        { type: 'person', count: Math.floor(Math.random() * 3), confidence: 0.89 },
-        { type: 'traffic light', count: 1, color: ['red', 'yellow', 'green'][Math.floor(Math.random() * 3)], confidence: 0.95 },
-        { type: 'stop sign', count: Math.random() > 0.7 ? 1 : 0, confidence: 0.97 },
-      ];
+  // Handle detection results
+  const handleDetectionResults = (results: any) => {
+    const now = Date.now();
+    // Throttle updates to avoid overwhelming the UI
+    if (now - lastDetectionTime.current > 100) {
+      lastDetectionTime.current = now;
       
-      // Add more objects based on probability
-      if (Math.random() > 0.6) trafficObjects.push({ type: 'truck', count: 1, confidence: 0.88 });
-      if (Math.random() > 0.7) trafficObjects.push({ type: 'bus', count: 1, confidence: 0.85 });
-      if (Math.random() > 0.6) trafficObjects.push({ type: 'bicycle', count: Math.floor(Math.random() * 2), confidence: 0.82 });
-      if (Math.random() > 0.8) trafficObjects.push({ type: 'motorcycle', count: 1, confidence: 0.86 });
-      if (Math.random() > 0.9) trafficObjects.push({ type: 'pedestrian crossing', count: 1, confidence: 0.91 });
-      if (Math.random() > 0.85) trafficObjects.push({ type: 'construction', count: 1, confidence: 0.83 });
-      if (Math.random() > 0.92) trafficObjects.push({ type: 'school zone', count: 1, confidence: 0.94 });
+      if (results.objects && Array.isArray(results.objects)) {
+        // Update detected objects in navigation context
+        updateDetectedObjects(results.objects);
+      }
       
-      // Clear previous drawings before redrawing
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(videoRef.current!, 0, 0, canvas.width, canvas.height);
-      
-      // Draw bounding boxes for each detected object
-      const detectedObjects = trafficObjects.filter(obj => obj.count > 0).map(obj => {
-        // Transform to expected format for DetectedObject
-        const detectedObj = {
-          type: obj.type,
-          count: obj.count,
-          confidence: obj.confidence,
-          color: (obj as any).color
-        };
-        
-        // Draw the bounding box for this object
-        drawRealisticDetectionBox(context, canvas.width, canvas.height, detectedObj);
-        
-        // Return just the fields compatible with DetectedObject type
-        return {
-          type: obj.type,
-          count: obj.count
-        };
-      });
-      
-      // Update navigation context with detected objects
-      updateDetectedObjects(detectedObjects);
-      
-    } catch (err) {
-      console.error("Error in object detection:", err);
-      toast({
-        variant: "destructive",
-        title: "Object Detection Error",
-        description: "Failed to process video frame"
-      });
+      if (results.lanes) {
+        // Update lane offset in navigation context
+        updateLaneOffset(results.lanes);
+      }
     }
     
-    setProcessing(false);
-  };
-
-  // More realistic detection box drawing
-  const drawRealisticDetectionBox = (
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    object: any
-  ) => {
-    // Create a more deterministic but still varied position based on object type
-    const objectTypeHash = object.type.split('').reduce((a, b) => {
-      return a + b.charCodeAt(0);
-    }, 0);
-    
-    const seed = objectTypeHash * 100;
-    const x = (seed % (width - 150)) + 20;
-    const y = ((seed * 3) % (height - 150)) + 20;
-    const boxWidth = 80 + (objectTypeHash % 60);
-    const boxHeight = 70 + (objectTypeHash % 50);
-    
-    // Set color based on object type and confidence
-    let color = '#00ff00'; // default green
-    
-    if (object.type === 'traffic light' && object.color) {
-      // Color based on traffic light state
-      if (object.color === 'red') color = '#ff0000';
-      else if (object.color === 'yellow') color = '#ffcc00';
-      else color = '#00ff00'; // green
-    } 
-    else if (object.type === 'person' || object.type === 'pedestrian' || object.type === 'pedestrian crossing') {
-      color = '#ff0066'; // pink/red for people - high attention
-    }
-    else if (['car', 'truck', 'bus'].includes(object.type)) {
-      color = '#ff6600'; // orange for vehicles
-    }
-    else if (['bicycle', 'motorcycle'].includes(object.type)) {
-      color = '#0099ff'; // blue for two-wheelers
-    }
-    else if (['stop sign', 'school zone'].includes(object.type)) {
-      color = '#ff3300'; // bright red for important signs
-    }
-    else if (object.type === 'construction') {
-      color = '#ffcc00'; // yellow for construction
-    }
-    
-    // Create a semi-transparent fill
-    ctx.fillStyle = `${color}33`; // 20% opacity
-    ctx.fillRect(x, y, boxWidth, boxHeight);
-    
-    // Draw rectangle border
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, boxWidth, boxHeight);
-    
-    // Draw confidence percentage
-    const confidence = object.confidence ? Math.round(object.confidence * 100) : 95;
-    
-    // Draw label background
-    ctx.fillStyle = color;
-    let label = `${object.type}`;
-    if (object.type === 'traffic light' && object.color) {
-      label += ` (${object.color})`;
-    } else if (object.count > 1) {
-      label += ` (${object.count})`;
-    }
-    label += ` ${confidence}%`;
-    
-    const labelWidth = ctx.measureText(label).width + 10;
-    ctx.fillRect(x, y - 20, labelWidth, 20);
-    
-    // Draw label text
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '12px Arial';
-    ctx.fillText(label, x + 5, y - 5);
+    // Reset processing flag after a short delay
+    setTimeout(() => setProcessing(false), 50);
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -34,6 +34,8 @@ interface NavigationContextType {
   stopNavigation: () => void;
   isNavigating: boolean;
   updateDetectedObjects: (objects: DetectedObject[]) => void;
+  updateLaneOffset: (laneOffset: LaneOffset) => void;
+  updateCO2Savings: () => void;
 }
 
 const initialState: NavigationState = {
@@ -63,6 +65,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
   const [isNavigating, setIsNavigating] = useState(false);
   const [useAutoDetection, setUseAutoDetection] = useState(false);
   const { toast } = useToast();
+  const startTimeRef = React.useRef<number>(Date.now());
 
   // Update simulation at regular intervals when navigating
   useEffect(() => {
@@ -84,6 +87,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         detectedObjects: detectedObjects
       }));
       
+      startTimeRef.current = Date.now();
+      
       toast({
         title: "Navigation Started",
         description: `Navigating to destination, ${route.distance.toFixed(1)}km away`,
@@ -95,9 +100,6 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       // Update location
       const newLocation = getUpdatedLocation(navigationState.currentLocation);
       
-      // Update lane offset
-      const newLaneOffset = mockLaneOffset();
-      
       // Update next instruction randomly (less frequently)
       const shouldUpdateInstruction = Math.random() > 0.9;
       const newInstruction = shouldUpdateInstruction ? mockNextInstruction() : navigationState.nextInstruction;
@@ -108,29 +110,17 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       // Update weather info occasionally
       const newWeather = Math.random() > 0.95 ? mockWeatherInfo() : navigationState.weather;
       
-      // Update CO2 savings
-      const oldSavings = navigationState.co2Savings;
-      const newSavings = {
-        totalKg: oldSavings.totalKg + 0.01,
-        treesEquivalent: parseFloat(((oldSavings.totalKg + 0.01) / 21 * 100).toFixed(1))
-      };
-      
       setNavigationState(prev => ({
         ...prev,
         currentLocation: newLocation,
         nextInstruction: newInstruction,
         distanceToNextInstruction: newDistance,
-        laneOffset: newLaneOffset,
         weather: newWeather,
-        co2Savings: newSavings
       }));
     }, 1000);
     
-    // Separate interval for emergency statuses and mock object detection if not using auto detection
-    const objectDetectionInterval = setInterval(() => {
-      // Only use mock objects if not using auto detection
-      const newDetectedObjects = useAutoDetection ? navigationState.detectedObjects : mockDetectedObjects();
-      
+    // Separate interval for emergency statuses
+    const emergencyInterval = setInterval(() => {
       // Update emergency status
       const newEmergencyStatus = mockEmergencyStatus();
       
@@ -148,15 +138,15 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
         ...prev,
         emergencyStatus: newEmergencyStatus,
         // Only update detected objects if not using auto detection
-        ...(useAutoDetection ? {} : { detectedObjects: newDetectedObjects })
+        ...(useAutoDetection ? {} : { detectedObjects: mockDetectedObjects() })
       }));
     }, 3000); // Update every 3 seconds
 
     return () => {
       clearInterval(mainInterval);
-      clearInterval(objectDetectionInterval);
+      clearInterval(emergencyInterval);
     };
-  }, [isNavigating, navigationState.isRouteSet, toast, navigationState.emergencyStatus.level, navigationState.currentLocation, navigationState.distanceToNextInstruction, navigationState.co2Savings, navigationState.detectedObjects, useAutoDetection]);
+  }, [isNavigating, navigationState.isRouteSet, toast, navigationState.emergencyStatus.level, navigationState.currentLocation, navigationState.distanceToNextInstruction, useAutoDetection]);
 
   const setCurrentLocation = (location: Location) => {
     setNavigationState(prev => ({
@@ -182,6 +172,7 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
 
   const startNavigation = () => {
     setIsNavigating(true);
+    startTimeRef.current = Date.now();
   };
 
   const stopNavigation = () => {
@@ -204,6 +195,38 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       detectedObjects: objects
     }));
   };
+  
+  const updateLaneOffset = (laneOffset: LaneOffset) => {
+    setNavigationState(prev => ({
+      ...prev,
+      laneOffset
+    }));
+  };
+  
+  const updateCO2Savings = () => {
+    // Calculate CO2 savings based on time elapsed and some variables
+    const timeElapsed = (Date.now() - startTimeRef.current) / 1000; // seconds
+    
+    // Base rate of CO2 savings per second (in kg)
+    const baseRate = 0.0005;
+    
+    // Additional factors could be added here (speed, eco-driving, etc.)
+    const savingsFactor = 1.0;
+    
+    // Calculate new total savings
+    const newTotalKg = baseRate * timeElapsed * savingsFactor;
+    
+    // Tree equivalence: average tree absorbs about 21kg CO2 per year
+    const treesEquivalent = (newTotalKg / 21) * 100; // As percentage of a tree's yearly absorption
+    
+    setNavigationState(prev => ({
+      ...prev,
+      co2Savings: {
+        totalKg: newTotalKg,
+        treesEquivalent: treesEquivalent
+      }
+    }));
+  };
 
   return (
     <NavigationContext.Provider value={{ 
@@ -213,7 +236,9 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       startNavigation, 
       stopNavigation,
       isNavigating,
-      updateDetectedObjects
+      updateDetectedObjects,
+      updateLaneOffset,
+      updateCO2Savings
     }}>
       {children}
     </NavigationContext.Provider>
