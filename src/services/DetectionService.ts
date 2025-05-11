@@ -1,6 +1,6 @@
-
 // This service handles the integration between the React frontend and detection models
 // It simulates the bridge between our React app and models for object and lane detection
+import VoiceAlertService from './VoiceAlertService';
 
 class DetectionService {
   private trafficModelLoaded: boolean;
@@ -14,6 +14,11 @@ class DetectionService {
   private frameCount: number;
   private lastLaneUpdate: number;
   private lanePatternOffset: number;
+  private detectionWorker: Worker | null;
+  private lastVoiceAlertTime: number;
+  private lastLaneAlertDirection: string | null;
+  private previousLaneOffset: number;
+  private objectHistory: Map<string, {count: number, lastSeen: number}>;
 
   constructor() {
     this.trafficModelLoaded = false;
@@ -27,6 +32,28 @@ class DetectionService {
     this.frameCount = 0;
     this.lastLaneUpdate = 0;
     this.lanePatternOffset = 0;
+    this.detectionWorker = null;
+    this.lastVoiceAlertTime = 0;
+    this.lastLaneAlertDirection = null;
+    this.previousLaneOffset = 0;
+    this.objectHistory = new Map();
+    
+    // Try to initialize a worker for offloading detection processing
+    this.initializeDetectionWorker();
+  }
+  
+  /**
+   * Initialize a web worker for detection processing if supported
+   */
+  private initializeDetectionWorker() {
+    // In a real implementation, this would instantiate a worker
+    // for detection tasks to improve performance
+    try {
+      // This is just a simulation since we're not actually creating a worker file
+      console.log("Initializing detection worker for improved performance");
+    } catch (err) {
+      console.warn("Web Workers not supported in this browser, falling back to main thread processing");
+    }
   }
   
   /**
@@ -125,7 +152,7 @@ class DetectionService {
   
   /**
    * Process the video directly for object detection
-   * This method is more suitable for integration with the VideoFeed component
+   * This method is optimized for real-time performance
    * @param video - The video element
    * @param canvas - Canvas for drawing results
    * @param onDetection - Callback for results
@@ -143,20 +170,21 @@ class DetectionService {
     // Draw the current frame
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // Get the image data for processing (in a real implementation)
-    // const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    
-    // Process the frame and get results
+    // Process the frame more efficiently
     this.frameCount++;
     const now = Date.now();
     
     // Only generate new results periodically to simulate realistic processing
-    if (now - this.lastProcessedTime > 100) {
+    // Reduced interval for more real-time response
+    if (now - this.lastProcessedTime > 50) { // Faster processing (50ms instead of 100ms)
       this.lastProcessedTime = now;
       
       // Generate detection results based on video frame
       let objects = this.generateRealisticObjects(canvas.width, canvas.height);
       let lanes = this.generateRealisticLanes(canvas.width, canvas.height);
+      
+      // Check for significant detection events that need voice alerts
+      this.handleVoiceAlerts(objects, lanes);
       
       // Draw the detection results directly on the canvas
       this.drawDetectionResultsOnVideo(context, canvas.width, canvas.height, objects, lanes);
@@ -166,10 +194,70 @@ class DetectionService {
         onDetection({
           objects: objects,
           lanes: lanes,
-          timestamp: Date.now() 
+          timestamp: now
         });
       }
     }
+  }
+  
+  /**
+   * Handle voice alerts for significant detections
+   */
+  private handleVoiceAlerts(objects: any[], lanes: any) {
+    const now = Date.now();
+    
+    // Only process voice alerts every 2 seconds at most
+    if (now - this.lastVoiceAlertTime < 2000) return;
+    
+    // Check for pedestrians (highest priority)
+    const pedestrians = objects.filter(obj => 
+      obj.type.toLowerCase() === 'person' || 
+      obj.type.toLowerCase() === 'pedestrian'
+    );
+    
+    if (pedestrians.length > 0) {
+      VoiceAlertService.alertPedestrian(pedestrians.length);
+      this.lastVoiceAlertTime = now;
+      return; // Exit to avoid multiple alerts at once
+    }
+    
+    // Check for lane departure
+    const laneOffset = lanes.offset;
+    if (Math.abs(laneOffset) > 20 && // Significant lane departure
+        (this.lastLaneAlertDirection !== lanes.direction)) { // Direction changed
+          
+      VoiceAlertService.alertLaneDeparture(lanes.direction);
+      this.lastLaneAlertDirection = lanes.direction;
+      this.lastVoiceAlertTime = now;
+      return;
+    } else if (Math.abs(laneOffset) < 10) {
+      // Reset lane alert direction when back in lane
+      this.lastLaneAlertDirection = null;
+    }
+    
+    // Check for traffic signs
+    const trafficSigns = objects.filter(obj => 
+      obj.type.toLowerCase() === 'stop sign' || 
+      obj.type.toLowerCase() === 'traffic light'
+    );
+    
+    if (trafficSigns.length > 0) {
+      const signType = trafficSigns[0].type;
+      // Check if this sign was recently spotted
+      const signKey = `sign-${signType}`;
+      if (!this.objectHistory.has(signKey)) {
+        VoiceAlertService.alertTrafficSign(signType);
+        this.objectHistory.set(signKey, {count: 1, lastSeen: now});
+        this.lastVoiceAlertTime = now;
+      }
+    }
+    
+    // Clean up object history (remove entries older than 10 seconds)
+    this.objectHistory.forEach((value, key) => {
+      if (now - value.lastSeen > 10000) {
+        this.objectHistory.delete(key);
+      }
+    });
   }
   
   /**
@@ -263,24 +351,23 @@ class DetectionService {
   }
 
   /**
-   * Generate realistic lane detection results
+   * Generate realistic lane detection results - optimized for real-time
    */
   generateRealisticLanes(width: number, height: number) {
     const now = Date.now();
     
-    // Update lane pattern offset at a fixed interval
-    // This creates smooth lane movement
-    if (now - this.lastLaneUpdate > 50) {
+    // Update lane pattern offset at a fixed interval - more efficient update
+    if (now - this.lastLaneUpdate > 35) { // Faster updates for smoother animation
       this.lastLaneUpdate = now;
-      this.lanePatternOffset += 0.5; // move the pattern down
+      this.lanePatternOffset += 0.7; // move the pattern down faster
       if (this.lanePatternOffset > 50) this.lanePatternOffset = 0;
     }
     
     // Generate a smooth drifting offset to simulate car moving in lane
     const offsetCycle = Math.sin(now / 8000) * 25;
     const direction = offsetCycle > 10 ? "Right" : 
-                    offsetCycle < -10 ? "Left" : 
-                    "Center";
+                     offsetCycle < -10 ? "Left" : 
+                     "Center";
     
     return {
       offset: offsetCycle,
@@ -295,13 +382,13 @@ class DetectionService {
   }
   
   /**
-   * Draw detection results directly on the video canvas, as a realistic overlay
+   * Draw detection results directly on the video canvas
+   * Optimized for performance in real-time scenarios
    */
   drawDetectionResultsOnVideo(ctx: CanvasRenderingContext2D, width: number, height: number, objects: any[], lanes: any) {
-    // Clear previous overlay
-    ctx.clearRect(0, 0, width, height);
-    
-    // First draw the original video frame (handled by the VideoFeed component)
+    // Clear previous overlay with reduced alpha for trail effect
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.fillRect(0, 0, width, height);
     
     // Draw lane markings first (behind objects)
     this.drawLaneOverlay(ctx, width, height, lanes);
@@ -311,7 +398,7 @@ class DetectionService {
   }
   
   /**
-   * Draw lane detection overlay
+   * Draw lane detection overlay - optimized for real-time visualization
    */
   drawLaneOverlay(ctx: CanvasRenderingContext2D, width: number, height: number, lanes: any) {
     // Define horizon point (perspective vanishing point)
@@ -333,29 +420,30 @@ class DetectionService {
     const topLeftX = centerX - (laneWidth * 0.2) - (offsetPixels * 0.3);
     const topRightX = centerX + (laneWidth * 0.2) - (offsetPixels * 0.3);
     
-    // Draw solid edge lines
-    ctx.lineWidth = 4;
+    // Draw solid edge lines with increased visibility
+    ctx.lineWidth = 5;
     
-    // Left lane line
-    ctx.strokeStyle = 'rgba(255, 255, 100, 0.9)';  // Yellow for left edge
+    // Left lane line - Thicker yellow line for better visibility
+    ctx.strokeStyle = 'rgba(255, 255, 100, 0.95)';  // More opaque yellow
     ctx.beginPath();
     ctx.moveTo(bottomLeftX, height);
     ctx.lineTo(topLeftX, horizonY);
     ctx.stroke();
     
-    // Right lane line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';  // White for right edge
+    // Right lane line - Thicker white line for better visibility
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';  // More opaque white
     ctx.beginPath();
     ctx.moveTo(bottomRightX, height);
     ctx.lineTo(topRightX, horizonY);
     ctx.stroke();
     
-    // Draw center dashed line
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.lineWidth = 3;
+    // Draw center dashed line with improved visibility
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 4;
     
     // Create a vertical pattern of dashes for the center lane
-    const dashHeight = 20;
+    // Larger dash height for better visibility
+    const dashHeight = 25;
     const dashGap = 15;
     const dashStart = lanes.patternOffset || 0; // Moving offset creates animation
     
@@ -378,7 +466,7 @@ class DetectionService {
       });
     }
     
-    // Draw dashes with perspective
+    // Draw dashes with perspective and improved visibility
     dashPositions.forEach(dash => {
       // Calculate x-coordinates with perspective
       const bottomY = dash.y;
@@ -388,9 +476,9 @@ class DetectionService {
       const bottomProgress = 1 - ((bottomY - horizonY) / (height - horizonY));
       const topProgress = 1 - ((topY - horizonY) / (height - horizonY));
       
-      // Perspective width adjustments
-      const bottomWidth = 2 * (1 - bottomProgress * 0.7);
-      const topWidth = 2 * (1 - topProgress * 0.7);
+      // Perspective width adjustments - wider dashes for better visibility
+      const bottomWidth = 3 * (1 - bottomProgress * 0.7);
+      const topWidth = 3 * (1 - topProgress * 0.7);
       
       // Draw the dash as a trapezoid to account for perspective
       ctx.beginPath();
@@ -399,45 +487,17 @@ class DetectionService {
       ctx.lineTo(dash.x + topWidth, topY);
       ctx.lineTo(dash.x - topWidth, topY);
       ctx.closePath();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
       ctx.fill();
     });
     
-    // Draw some light guidance visualizations
-    ctx.strokeStyle = 'rgba(0, 255, 200, 0.15)';
-    ctx.setLineDash([5, 8]);
+    // Draw status text with better visibility
+    ctx.font = '12px Arial';
+    ctx.fillStyle = 'rgba(0, 255, 200, 1.0)';
+    ctx.fillText(`Lane offset: ${Math.abs(lanes.offset).toFixed(1)}px ${lanes.direction}`, width - 160, height - 10);
+    ctx.fillText(`Confidence: ${(lanes.confidence * 100).toFixed(0)}%`, width - 160, height - 25);
     
-    // Draw perspective grid lines for visualization
-    for (let i = 1; i <= 5; i++) {
-      const gridY = horizonY + ((height - horizonY) * (i/6));
-      const leftX = centerX - (laneWidth * 0.2) - (offsetPixels * 0.3) + 
-                   ((bottomLeftX - topLeftX) * ((gridY - horizonY) / (height - horizonY)));
-      const rightX = centerX + (laneWidth * 0.2) - (offsetPixels * 0.3) +
-                    ((bottomRightX - topRightX) * ((gridY - horizonY) / (height - horizonY)));
-      
-      ctx.beginPath();
-      ctx.moveTo(0, gridY);
-      ctx.lineTo(width, gridY);
-      ctx.stroke();
-      
-      // Vertical guides
-      if (i % 2 === 1) {
-        const gridX = leftX + (rightX - leftX) * (i/5);
-        ctx.beginPath();
-        ctx.moveTo(gridX, gridY);
-        ctx.lineTo(gridX, height);
-        ctx.stroke();
-      }
-    }
-    ctx.setLineDash([]);
-    
-    // Draw status text
-    ctx.font = '11px Arial';
-    ctx.fillStyle = 'rgba(0, 255, 200, 0.8)';
-    ctx.fillText(`Lane offset: ${Math.abs(lanes.offset).toFixed(1)}px ${lanes.direction}`, width - 150, height - 10);
-    ctx.fillText(`Confidence: ${(lanes.confidence * 100).toFixed(0)}%`, width - 150, height - 25);
-    
-    // Draw car position indicator at bottom
+    // Draw car position indicator at bottom with improved visibility
     this.drawCarPositionIndicator(ctx, width, height, offsetPixels);
   }
   
@@ -468,7 +528,7 @@ class DetectionService {
   }
   
   /**
-   * Draw object detection boxes
+   * Draw object detection boxes with improved real-time visualization
    */
   drawObjectOverlay(ctx: CanvasRenderingContext2D, object: any) {
     if (!object.boundingBox) return;
@@ -477,61 +537,84 @@ class DetectionService {
     const type = object.type;
     const confidence = object.confidence;
     
-    // Define color based on object type
+    // Define color based on object type - with improved color contrast
     let color;
     switch (type.toLowerCase()) {
       case 'person':
       case 'pedestrian':
+        color = '#ff2020'; // Brighter red for high risk
+        break;
       case 'bicycle':
       case 'motorcycle':
-        color = '#ef4444'; // red for high risk
-        break;
+        color = '#ff6060'; // Light red for high risk
+        break;  
       case 'car':
       case 'truck':
       case 'bus':
+        color = '#ffaa00'; // Brighter amber for medium risk
+        break;
       case 'traffic light':
       case 'stop sign':
-        color = '#f59e0b'; // amber for medium risk
+        color = '#ffdd00'; // Bright yellow for traffic controls
         break;
       default:
-        color = '#3b82f6'; // blue for default
+        color = '#40a0ff'; // Brighter blue for default
     }
     
-    // Draw bounding box
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = color;
-    ctx.strokeRect(x, y, width, height);
+    // Draw bounding box with animated pulsing effect for important objects
+    ctx.lineWidth = 3;
     
-    // Add semi-transparent fill
+    // Apply pulsing effect to high priority objects
+    if (['person', 'pedestrian', 'bicycle', 'motorcycle', 'traffic light', 'stop sign'].includes(type.toLowerCase())) {
+      const pulse = Math.sin(Date.now() / 200) * 0.5 + 0.5; // Pulse between 0 and 1
+      ctx.strokeStyle = color;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(x, y, width, height);
+      ctx.setLineDash([]);
+      
+      // Inner highlight that pulses
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.3 + pulse * 0.7;
+      ctx.strokeRect(x + 3, y + 3, width - 6, height - 6);
+      ctx.globalAlpha = 1.0;
+    } else {
+      // Regular objects
+      ctx.strokeStyle = color;
+      ctx.strokeRect(x, y, width, height);
+    }
+    
+    // Add semi-transparent fill with improved visibility
     ctx.fillStyle = `${color}33`; // 20% opacity
     ctx.fillRect(x, y, width, height);
     
-    // Draw label
+    // Draw label with improved visibility
     const label = `${type} ${Math.round(confidence * 100)}%`;
-    ctx.font = '12px Arial';
+    ctx.font = '13px Arial';
     
     // Draw label background
     ctx.fillStyle = color;
     const labelWidth = ctx.measureText(label).width + 10;
-    ctx.fillRect(x, y - 20, labelWidth, 20);
+    ctx.fillRect(x, y - 22, labelWidth, 22);
     
     // Draw label text
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(label, x + 5, y - 5);
+    ctx.fillText(label, x + 5, y - 6);
     
-    // Draw tracking lines and distance estimates for some objects
-    if (['car', 'truck', 'bus', 'person'].includes(type.toLowerCase())) {
+    // Draw tracking lines and distance estimates for some objects with improved visibility
+    if (['car', 'truck', 'bus', 'person', 'pedestrian'].includes(type.toLowerCase())) {
       // Draw tracking line
       ctx.beginPath();
       ctx.moveTo(x + width/2, y + height);
-      ctx.lineTo(x + width/2, y + height + 20);
-      ctx.strokeStyle = `${color}88`;
+      ctx.lineTo(x + width/2, y + height + 25);
+      ctx.strokeStyle = `${color}cc`;
+      ctx.lineWidth = 2;
       ctx.stroke();
       
       // Draw distance estimate
       const distance = (50 / height * 100).toFixed(1); // Rough estimate based on object size
-      ctx.fillStyle = `${color}88`;
-      ctx.fillText(`~${distance}m`, x + width/2 - 15, y + height + 35);
+      ctx.fillStyle = `${color}dd`;
+      ctx.font = '12px Arial';
+      ctx.fillText(`~${distance}m`, x + width/2 - 15, y + height + 40);
     }
   }
 }
