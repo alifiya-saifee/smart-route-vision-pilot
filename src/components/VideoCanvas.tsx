@@ -1,15 +1,21 @@
+
 import React, { useEffect, useRef, useState } from 'react';
+import { Clock, Camera, CameraOff } from 'lucide-react';
 
 interface VideoCanvasProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   videoRef: React.RefObject<HTMLVideoElement>;
   objectDetectionEnabled: boolean;
+  onToggleCamera?: () => void;
+  isCameraActive?: boolean;
 }
 
 const VideoCanvas: React.FC<VideoCanvasProps> = ({ 
   canvasRef,
   videoRef,
-  objectDetectionEnabled
+  objectDetectionEnabled,
+  onToggleCamera,
+  isCameraActive = false
 }) => {
   // FPS counter for performance monitoring
   const fpsRef = useRef<number>(0);
@@ -18,6 +24,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const fpsDisplayRef = useRef<HTMLDivElement>(null);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [emergencyActive, setEmergencyActive] = useState<boolean>(false);
+  const [timeDisplay, setTimeDisplay] = useState<string>('');
   
   // Initialize canvas size when video dimensions are available
   useEffect(() => {
@@ -30,6 +37,16 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     canvas.width = videoElement.videoWidth || videoElement.clientWidth;
     canvas.height = videoElement.videoHeight || videoElement.clientHeight;
   }, [canvasRef, videoRef]);
+  
+  // Update time display
+  useEffect(() => {
+    const timeInterval = setInterval(() => {
+      const now = new Date();
+      setTimeDisplay(now.toLocaleTimeString());
+    }, 1000);
+    
+    return () => clearInterval(timeInterval);
+  }, []);
   
   // Set up FPS counter and recording logic
   useEffect(() => {
@@ -102,16 +119,32 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         }`}
       />
       
-      {/* FPS counter and recording indicator */}
+      {/* FPS counter, time and recording indicator */}
       {objectDetectionEnabled && (
-        <div
-          ref={fpsDisplayRef}
-          className={`absolute top-4 left-4 ${isRecording ? 'bg-red-600/90' : 'bg-black/70'} text-${isRecording ? 'white' : 'green-400'} px-2 py-1 text-xs rounded font-mono flex items-center`}
-        >
-          {isRecording && (
-            <div className="w-2 h-2 bg-red-100 rounded-full mr-2 animate-pulse"></div>
+        <div className="absolute top-0 left-0 right-0 flex justify-between items-center bg-black/50 text-white px-2 py-1 text-xs">
+          <div
+            ref={fpsDisplayRef}
+            className={`${isRecording ? 'text-red-400' : 'text-green-400'} px-2 py-1 text-xs rounded font-mono flex items-center`}
+          >
+            {isRecording && (
+              <div className="w-2 h-2 bg-red-100 rounded-full mr-2 animate-pulse"></div>
+            )}
+            -- FPS
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4" />
+            <span>{timeDisplay}</span>
+          </div>
+          
+          {onToggleCamera && (
+            <button 
+              onClick={onToggleCamera}
+              className="bg-blue-500/50 hover:bg-blue-600/70 rounded-full p-1"
+            >
+              {isCameraActive ? <CameraOff className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+            </button>
           )}
-          -- FPS
         </div>
       )}
       

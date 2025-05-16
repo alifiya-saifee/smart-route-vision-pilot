@@ -1,7 +1,7 @@
 
 import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Upload } from 'lucide-react';
+import { Upload, Camera, CameraOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -12,6 +12,8 @@ interface VideoControlsProps {
   processing: boolean;
   detectFrameCount: number;
   isLoaded: boolean;
+  toggleCameraStream?: () => void;
+  isCameraActive?: boolean;
 }
 
 const VideoControls: React.FC<VideoControlsProps> = ({
@@ -20,7 +22,9 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   toggleObjectDetection,
   processing,
   detectFrameCount,
-  isLoaded
+  isLoaded,
+  toggleCameraStream,
+  isCameraActive = false
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -39,12 +43,34 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   return (
     <>
       {/* Control buttons */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col space-y-2">
+      <div className="absolute top-16 right-4 z-10 flex flex-col space-y-2">
+        {toggleCameraStream && (
+          <Button 
+            onClick={toggleCameraStream} 
+            variant={isCameraActive ? "destructive" : "secondary"} 
+            size="sm" 
+            className={`${isCameraActive ? "" : "bg-black/50 hover:bg-black/70"} flex items-center`}
+          >
+            {isCameraActive ? (
+              <>
+                <CameraOff className="mr-2 h-4 w-4" />
+                Stop Camera
+              </>
+            ) : (
+              <>
+                <Camera className="mr-2 h-4 w-4" />
+                Use Camera
+              </>
+            )}
+          </Button>
+        )}
+        
         <Button 
           onClick={triggerFileInput} 
           variant="secondary" 
           size="sm" 
           className="bg-black/50 hover:bg-black/70"
+          disabled={isCameraActive}
         >
           <Upload className="mr-2 h-4 w-4" />
           Upload Video

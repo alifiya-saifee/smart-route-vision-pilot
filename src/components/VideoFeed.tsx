@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
@@ -17,7 +16,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     isLoaded,
     error,
     videoSrc,
-    handleFileUpload
+    handleFileUpload,
+    toggleCameraStream,
+    isCameraActive
   } = useVideoProcessing();
   
   const {
@@ -44,15 +45,35 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     });
   };
 
+  // Ensure video keeps playing when tab regains focus
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && videoRef.current && !isCameraActive) {
+        videoRef.current.play().catch(error => {
+          console.error("Error playing video:", error);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [videoRef, isCameraActive]);
+
   return (
     <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}>
       {/* Main video element */}
       <video
         ref={videoRef}
-        src={videoSrc}
-        loop
+        src={!isCameraActive ? videoSrc : undefined}
+        loop={!isCameraActive}
         muted
         playsInline
+        autoPlay
         className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
       />
       
@@ -61,6 +82,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         canvasRef={canvasRef}
         videoRef={videoRef} 
         objectDetectionEnabled={objectDetectionEnabled}
+        onToggleCamera={toggleCameraStream}
+        isCameraActive={isCameraActive}
       />
       
       {/* Loading/error states */}
@@ -100,6 +123,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         processing={processing}
         detectFrameCount={detectFrameCount}
         isLoaded={isLoaded}
+        toggleCameraStream={toggleCameraStream}
+        isCameraActive={isCameraActive}
       />
     </div>
   );
