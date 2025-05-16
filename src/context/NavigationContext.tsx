@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { 
   NavigationState,
@@ -36,6 +35,7 @@ interface NavigationContextType {
   updateDetectedObjects: (objects: DetectedObject[]) => void;
   updateLaneOffset: (laneOffset: LaneOffset) => void;
   updateCO2Savings: () => void;
+  updateEmergencyStatus: (emergencyStatus: EmergencyStatus) => void;
 }
 
 const initialState: NavigationState = {
@@ -243,6 +243,22 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
     lastCO2UpdateTime.current = now;
   };
 
+  const updateEmergencyStatus = (emergencyStatus: EmergencyStatus) => {
+    setNavigationState(prev => ({
+      ...prev,
+      emergencyStatus
+    }));
+    
+    // Show toast notification for critical emergencies
+    if (emergencyStatus.level === "critical") {
+      toast({
+        variant: "destructive",
+        title: "Emergency Alert",
+        description: emergencyStatus.response || "Critical situation detected",
+      });
+    }
+  };
+
   return (
     <NavigationContext.Provider value={{ 
       navigationState, 
@@ -253,7 +269,8 @@ export const NavigationProvider: React.FC<{ children: ReactNode }> = ({ children
       isNavigating,
       updateDetectedObjects,
       updateLaneOffset,
-      updateCO2Savings
+      updateCO2Savings,
+      updateEmergencyStatus
     }}>
       {children}
     </NavigationContext.Provider>

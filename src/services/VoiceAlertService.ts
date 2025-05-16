@@ -9,6 +9,7 @@ class VoiceAlertService {
   private isSpeaking: boolean;
   private alertQueue: string[];
   private alertVolume: number;
+  private emergencyMode: boolean;
 
   constructor() {
     this.speechSynthesis = window.speechSynthesis;
@@ -17,6 +18,7 @@ class VoiceAlertService {
     this.isSpeaking = false;
     this.alertQueue = [];
     this.alertVolume = 1.0;
+    this.emergencyMode = false;
 
     // Set default cooldown times (in ms) for different alert types
     this.alertCooldowns.set('pedestrian', 10000);
@@ -24,6 +26,8 @@ class VoiceAlertService {
     this.alertCooldowns.set('lane_departure', 5000);
     this.alertCooldowns.set('traffic_sign', 6000);
     this.alertCooldowns.set('general', 3000);
+    this.alertCooldowns.set('poi', 12000);
+    this.alertCooldowns.set('emergency', 5000);
   }
 
   /**
@@ -32,6 +36,25 @@ class VoiceAlertService {
    */
   setVolume(volume: number) {
     this.alertVolume = Math.max(0, Math.min(1, volume));
+  }
+
+  /**
+   * Set emergency mode status
+   * @param isEmergency Whether emergency mode is active
+   */
+  setEmergencyMode(isEmergency: boolean) {
+    if (isEmergency && !this.emergencyMode) {
+      // Entering emergency mode - announce it
+      this.alertCritical("Emergency mode activated. Recording collision risk.");
+      
+      // Dispatch event for UI components to respond
+      const emergencyEvent = new CustomEvent('emergency-detected', {
+        detail: { time: new Date() }
+      });
+      window.dispatchEvent(emergencyEvent);
+    }
+    
+    this.emergencyMode = isEmergency;
   }
 
   /**
@@ -48,6 +71,11 @@ class VoiceAlertService {
     // Check if we're still in cooldown period
     if (now - lastTime < cooldown) {
       return;
+    }
+    
+    // In emergency mode, increase priority of all alerts
+    if (this.emergencyMode && priority < 3) {
+      priority = 3;
     }
     
     // Add to queue with priority
@@ -99,7 +127,13 @@ class VoiceAlertService {
     // Create and configure speech utterance
     const utterance = new SpeechSynthesisUtterance(message);
     utterance.volume = this.alertVolume;
-    utterance.rate = 1.1; // Slightly faster than normal for urgency
+    
+    // Adjust rate based on alert type and emergency mode
+    if (this.emergencyMode || alertType === 'emergency') {
+      utterance.rate = 1.2; // Faster for emergency
+    } else {
+      utterance.rate = 1.1; // Slightly faster than normal for urgency
+    }
     
     // Set voice based on alert type
     const voices = this.speechSynthesis.getVoices();
@@ -152,17 +186,42 @@ class VoiceAlertService {
   /**
    * Alert for vehicle detection that might be a risk
    */
-  alertVehicle(vehicleType: string, count: number = 1): void {
-    if (count > 2) {
+  alertVehicle(vehicleType: string, distance: number, count: number = 1): void {
+    if (distance < 15) {
+      // Vehicle very close - emergency!
+      this.setEmergencyMode(true);
+      this.speak(`Warning! ${vehicleType} too close!`, 'emergency', 5);
+    } else if (distance < 30) {
+      // Vehicle close - alert
+      this.speak(`${vehicleType} close behind`, 'vehicle', 3);
+    } else if (count > 2) {
       this.speak(`Multiple ${vehicleType}s ahead`, 'vehicle', 1);
     }
+  }
+  
+  /**
+   * Alert for point of interest detection
+   */
+  alertPOI(poiType: string, distance: number, direction: string): void {
+    let messagePrefix = "";
+    
+    if (poiType.toLowerCase() === "hospital") {
+      messagePrefix = "Hospital";
+    } else if (poiType.toLowerCase() === "gas" || poiType.toLowerCase() === "gas station") {
+      messagePrefix = "Gas station";
+    } else {
+      messagePrefix = poiType;
+    }
+    
+    const distanceKm = (distance / 1000).toFixed(1);
+    this.speak(`${messagePrefix} ${distanceKm} kilometers ${direction}`, 'poi', 1);
   }
 
   /**
    * General alert for any critical situation
    */
   alertCritical(message: string): void {
-    this.speak(message, 'general', 4);
+    this.speak(message, 'emergency', 4);
   }
 }
 

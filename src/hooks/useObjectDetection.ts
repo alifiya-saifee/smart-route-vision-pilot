@@ -9,12 +9,19 @@ export const useObjectDetection = () => {
   const [objectDetectionEnabled, setObjectDetectionEnabled] = useState(false);
   const [detectFrameCount, setDetectFrameCount] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [emergencyMode, setEmergencyMode] = useState(false);
   const processingTimerRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(Date.now());
-  const detectionResultsRef = useRef<any>({ objects: [], lanes: { offset: 0, direction: 'Center' } });
-  const { updateDetectedObjects, updateLaneOffset, updateCO2Savings } = useNavigation();
+  const detectionResultsRef = useRef<any>({ 
+    objects: [], 
+    lanes: { offset: 0, direction: 'Center' },
+    pois: []
+  });
+  const { updateDetectedObjects, updateLaneOffset, updateCO2Savings, updateEmergencyStatus } = useNavigation();
   const highPriorityDetectionRef = useRef<boolean>(false);
   const requestIdRef = useRef<number | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<BlobPart[]>([]);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -97,6 +104,27 @@ export const useObjectDetection = () => {
     
     initializeDetection();
     
+    // Set up emergency detection event listener
+    window.addEventListener('emergency-detected', ((e: CustomEvent) => {
+      console.log('Emergency detected event received', e.detail);
+      setEmergencyMode(true);
+      startRecording();
+      
+      // Update emergency status through navigation context
+      updateEmergencyStatus({
+        active: true,
+        level: "critical",
+        type: "collision_risk",
+        triggers: [{
+          type: "proximity",
+          level: "critical",
+          details: "Vehicle too close"
+        }],
+        duration: 0,
+        response: "Recording started, scanning for nearby medical facilities"
+      });
+    }) as EventListener);
+    
     // Clean up function
     return () => {
       if (processingTimerRef.current) {
@@ -107,8 +135,15 @@ export const useObjectDetection = () => {
         cancelAnimationFrame(requestIdRef.current);
         requestIdRef.current = null;
       }
+      
+      window.removeEventListener('emergency-detected', (() => {}) as EventListener);
+      
+      // Stop recording if active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
     };
-  }, []);
+  }, [updateEmergencyStatus]);
 
   // Setup CO2 updating at regular intervals
   useEffect(() => {
@@ -124,11 +159,52 @@ export const useObjectDetection = () => {
     };
   }, [objectDetectionEnabled, updateCO2Savings]);
 
+  // Start recording function for emergency mode
+  const startRecording = async () => {
+    try {
+      const videoElement = document.querySelector('video');
+      if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
+        throw new Error('Video element not found');
+      }
+      
+      // In a real implementation, this would use MediaRecorder API
+      // to record video and save it for emergency purposes
+      console.log('⚠️ Emergency recording started');
+      
+      // Simulate recording functionality
+      setTimeout(() => {
+        // End emergency mode after some time (simulated)
+        setEmergencyMode(false);
+        console.log('✅ Emergency recording stopped and saved');
+        
+        // Update emergency status
+        updateEmergencyStatus({
+          active: false,
+          level: "none",
+          type: null,
+          triggers: [],
+          duration: 0
+        });
+        
+        // Show notification
+        VoiceAlertService.speak("Emergency recording saved", "general", 2);
+      }, 10000);
+      
+    } catch (error) {
+      console.error('Error starting recording:', error);
+    }
+  };
+
   // Handle detection results with improved performance
   const handleDetectionResults = (results: any) => {
     const now = Date.now();
     // Save the latest detection results
     detectionResultsRef.current = results;
+    
+    // Update emergency mode status
+    if (results.emergency !== emergencyMode) {
+      setEmergencyMode(results.emergency);
+    }
     
     // Check for high priority objects (pedestrians, traffic signs)
     highPriorityDetectionRef.current = results.objects.some((obj: any) => 
@@ -167,6 +243,18 @@ export const useObjectDetection = () => {
     } else {
       // Announce deactivation
       VoiceAlertService.speak("Detection deactivated", "general", 1);
+      
+      // Stop any emergency mode when detection is turned off
+      if (emergencyMode) {
+        setEmergencyMode(false);
+        updateEmergencyStatus({
+          active: false,
+          level: "none",
+          type: null,
+          triggers: [],
+          duration: 0
+        });
+      }
     }
   };
 
@@ -175,6 +263,7 @@ export const useObjectDetection = () => {
     objectDetectionEnabled,
     detectFrameCount,
     processing,
+    emergencyMode,
     toggleObjectDetection
   };
 };

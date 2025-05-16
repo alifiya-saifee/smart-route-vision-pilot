@@ -1,3 +1,4 @@
+
 // This service handles the integration between the React frontend and detection models
 // It simulates the bridge between our React app and models for object and lane detection
 import VoiceAlertService from './VoiceAlertService';
@@ -19,6 +20,9 @@ class DetectionService {
   private lastLaneAlertDirection: string | null;
   private previousLaneOffset: number;
   private objectHistory: Map<string, {count: number, lastSeen: number}>;
+  private emergencyMode: boolean;
+  private lastCollisionCheck: number;
+  private poiDatabase: Map<string, {lat: number, lon: number, type: string, name: string}>;
 
   constructor() {
     this.trafficModelLoaded = false;
@@ -37,9 +41,50 @@ class DetectionService {
     this.lastLaneAlertDirection = null;
     this.previousLaneOffset = 0;
     this.objectHistory = new Map();
+    this.emergencyMode = false;
+    this.lastCollisionCheck = 0;
+    
+    // Initialize Points of Interest database (simulated)
+    this.poiDatabase = new Map();
+    this.initializePoiDatabase();
     
     // Try to initialize a worker for offloading detection processing
     this.initializeDetectionWorker();
+  }
+  
+  /**
+   * Initialize a simulated points of interest database
+   */
+  private initializePoiDatabase() {
+    // Mock data for hospitals
+    this.poiDatabase.set('hospital1', {
+      lat: 37.7749,
+      lon: -122.4194,
+      type: 'hospital',
+      name: 'City Hospital'
+    });
+    
+    this.poiDatabase.set('hospital2', {
+      lat: 37.7833,
+      lon: -122.4167,
+      type: 'hospital',
+      name: 'Medical Center'
+    });
+    
+    // Mock data for gas stations
+    this.poiDatabase.set('gas1', {
+      lat: 37.7833,
+      lon: -122.4264,
+      type: 'gas',
+      name: 'Downtown Gas'
+    });
+    
+    this.poiDatabase.set('gas2', {
+      lat: 37.7906,
+      lon: -122.4238,
+      type: 'gas',
+      name: 'Quick Fuel'
+    });
   }
   
   /**
@@ -176,15 +221,19 @@ class DetectionService {
     
     // Only generate new results periodically to simulate realistic processing
     // Reduced interval for more real-time response
-    if (now - this.lastProcessedTime > 50) { // Faster processing (50ms instead of 100ms)
+    if (now - this.lastProcessedTime > 40) { // Even faster processing for real-time
       this.lastProcessedTime = now;
       
       // Generate detection results based on video frame
       let objects = this.generateRealisticObjects(canvas.width, canvas.height);
       let lanes = this.generateRealisticLanes(canvas.width, canvas.height);
+      let pois = this.getNearbyPOIs();
+      
+      // Check for collision risks
+      this.checkCollisionRisks(objects, now);
       
       // Check for significant detection events that need voice alerts
-      this.handleVoiceAlerts(objects, lanes);
+      this.handleVoiceAlerts(objects, lanes, pois);
       
       // Draw the detection results directly on the canvas
       this.drawDetectionResultsOnVideo(context, canvas.width, canvas.height, objects, lanes);
@@ -194,16 +243,89 @@ class DetectionService {
         onDetection({
           objects: objects,
           lanes: lanes,
-          timestamp: now
+          pois: pois,
+          timestamp: now,
+          emergency: this.emergencyMode
         });
       }
     }
   }
   
   /**
+   * Check for collision risks with nearby vehicles
+   */
+  private checkCollisionRisks(objects: any[], now: number) {
+    // Only check periodically to avoid overwhelming the system
+    if (now - this.lastCollisionCheck < 1000) return;
+    this.lastCollisionCheck = now;
+    
+    // Check for vehicles that are too close
+    const vehicles = objects.filter(obj => 
+      ['car', 'truck', 'bus'].includes(obj.type.toLowerCase())
+    );
+    
+    // Find closest vehicle and calculate distance
+    let closestVehicle = null;
+    let minDistance = Infinity;
+    
+    for (const vehicle of vehicles) {
+      if (vehicle.distance && vehicle.distance < minDistance) {
+        closestVehicle = vehicle;
+        minDistance = vehicle.distance;
+      }
+    }
+    
+    // If a vehicle is too close, trigger emergency mode
+    if (closestVehicle && minDistance < 15) {
+      if (!this.emergencyMode) {
+        this.emergencyMode = true;
+        VoiceAlertService.setEmergencyMode(true);
+      }
+    } else if (this.emergencyMode && (!closestVehicle || minDistance > 40)) {
+      // If we were in emergency mode but vehicles are now far enough away
+      this.emergencyMode = false;
+      VoiceAlertService.setEmergencyMode(false);
+    }
+  }
+  
+  /**
+   * Get nearby points of interest (simulated)
+   */
+  private getNearbyPOIs() {
+    const pois = [];
+    const now = Date.now();
+    
+    // Simulate some POIs being detected randomly
+    const detectHospital = Math.random() > 0.7;
+    const detectGasStation = Math.random() > 0.6;
+    
+    if (detectHospital) {
+      pois.push({
+        type: 'hospital',
+        name: 'City Hospital',
+        distance: 1200 + Math.random() * 500, // meters
+        direction: Math.random() > 0.5 ? 'ahead' : 'right',
+        confidence: 0.8 + Math.random() * 0.15
+      });
+    }
+    
+    if (detectGasStation) {
+      pois.push({
+        type: 'gas',
+        name: 'Quick Fuel',
+        distance: 800 + Math.random() * 300, // meters
+        direction: Math.random() > 0.7 ? 'ahead' : (Math.random() > 0.5 ? 'left' : 'right'),
+        confidence: 0.7 + Math.random() * 0.2
+      });
+    }
+    
+    return pois;
+  }
+  
+  /**
    * Handle voice alerts for significant detections
    */
-  private handleVoiceAlerts(objects: any[], lanes: any) {
+  private handleVoiceAlerts(objects: any[], lanes: any, pois: any[]) {
     const now = Date.now();
     
     // Only process voice alerts every 2 seconds at most
@@ -235,6 +357,30 @@ class DetectionService {
       this.lastLaneAlertDirection = null;
     }
     
+    // Check for vehicles that are close
+    const vehicles = objects.filter(obj => 
+      ['car', 'truck', 'bus'].includes(obj.type.toLowerCase())
+    );
+    
+    // Find closest vehicle behind
+    if (vehicles.length > 0) {
+      const closestVehicle = vehicles.reduce((closest, current) => {
+        if (!closest.distance) return current;
+        if (!current.distance) return closest;
+        return current.distance < closest.distance ? current : closest;
+      });
+      
+      if (closestVehicle && closestVehicle.distance) {
+        VoiceAlertService.alertVehicle(
+          closestVehicle.type, 
+          closestVehicle.distance,
+          vehicles.length
+        );
+        this.lastVoiceAlertTime = now;
+        return;
+      }
+    }
+    
     // Check for traffic signs
     const trafficSigns = objects.filter(obj => 
       obj.type.toLowerCase() === 'stop sign' || 
@@ -249,7 +395,16 @@ class DetectionService {
         VoiceAlertService.alertTrafficSign(signType);
         this.objectHistory.set(signKey, {count: 1, lastSeen: now});
         this.lastVoiceAlertTime = now;
+        return;
       }
+    }
+    
+    // Check for Points of Interest
+    if (pois.length > 0 && Math.random() > 0.7) { // Randomize POI alerts to avoid too many
+      const poi = pois[0];
+      VoiceAlertService.alertPOI(poi.type, poi.distance, poi.direction);
+      this.lastVoiceAlertTime = now;
+      return;
     }
     
     // Clean up object history (remove entries older than 10 seconds)
@@ -319,6 +474,16 @@ class DetectionService {
           w: width * 0.04,
           h: height * 0.07
         })
+      },
+      // Add car behind for collision detection
+      { type: "Car Behind", 
+        probability: 0.6, 
+        position: () => ({ 
+          x: width * (0.4 + Math.random() * 0.2), 
+          y: height * (0.85 + Math.random() * 0.1),
+          w: width * (0.15 + Math.random() * 0.05),
+          h: height * (0.08 + Math.random() * 0.03)
+        })
       }
     ];
     
@@ -332,10 +497,24 @@ class DetectionService {
         
         for (let i = 0; i < count; i++) {
           const pos = obj.position();
+          
+          // Calculate simulated distance
+          const distance = obj.type === "Car Behind" 
+            ? (Math.random() * 45) // Random distance for car behind (0-45 meters)
+            : 50 + Math.random() * 50; // Further for other objects
+          
+          // Add emergency car with low probability
+          let emergencyVehicle = false;
+          if ((obj.type === "Car" || obj.type === "Truck") && Math.random() > 0.95) {
+            emergencyVehicle = true;
+          }
+          
           objects.push({
-            type: obj.type,
+            type: obj.type === "Car Behind" ? "Car" : obj.type, // Normalize the type
             count: 1,
             confidence: 0.7 + Math.random() * 0.25,
+            distance: distance,
+            emergency: emergencyVehicle,
             boundingBox: {
               x: pos.x + (i * pos.w * 0.5), // Offset multiple cars
               y: pos.y,
@@ -395,6 +574,28 @@ class DetectionService {
     
     // Then draw the detected objects
     objects.forEach(obj => this.drawObjectOverlay(ctx, obj));
+    
+    // Draw emergency indicator if active
+    if (this.emergencyMode) {
+      this.drawEmergencyOverlay(ctx, width, height);
+    }
+  }
+  
+  /**
+   * Draw emergency overlay when in emergency mode
+   */
+  private drawEmergencyOverlay(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    // Draw red border
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(0, 0, width, height);
+    
+    // Draw distance warning
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+    ctx.font = 'bold 24px Arial';
+    const warningText = 'COLLISION RISK';
+    const textWidth = ctx.measureText(warningText).width;
+    ctx.fillText(warningText, (width - textWidth) / 2, height - 40);
   }
   
   /**
@@ -536,6 +737,8 @@ class DetectionService {
     const { x, y, width, height } = object.boundingBox;
     const type = object.type;
     const confidence = object.confidence;
+    const distance = object.distance || null;
+    const isEmergency = object.emergency || false;
     
     // Define color based on object type - with improved color contrast
     let color;
@@ -551,7 +754,7 @@ class DetectionService {
       case 'car':
       case 'truck':
       case 'bus':
-        color = '#ffaa00'; // Brighter amber for medium risk
+        color = isEmergency ? '#ff00ff' : '#ffaa00'; // Special color for emergency vehicles
         break;
       case 'traffic light':
       case 'stop sign':
@@ -565,7 +768,7 @@ class DetectionService {
     ctx.lineWidth = 3;
     
     // Apply pulsing effect to high priority objects
-    if (['person', 'pedestrian', 'bicycle', 'motorcycle', 'traffic light', 'stop sign'].includes(type.toLowerCase())) {
+    if (['person', 'pedestrian', 'bicycle', 'motorcycle', 'traffic light', 'stop sign'].includes(type.toLowerCase()) || isEmergency) {
       const pulse = Math.sin(Date.now() / 200) * 0.5 + 0.5; // Pulse between 0 and 1
       ctx.strokeStyle = color;
       ctx.setLineDash([5, 3]);
@@ -588,17 +791,22 @@ class DetectionService {
     ctx.fillRect(x, y, width, height);
     
     // Draw label with improved visibility
-    const label = `${type} ${Math.round(confidence * 100)}%`;
+    const labelText = isEmergency 
+      ? `${type} (Emergency)` 
+      : distance 
+        ? `${type} ${Math.round(confidence * 100)}% - ${distance.toFixed(1)}m` 
+        : `${type} ${Math.round(confidence * 100)}%`;
+    
     ctx.font = '13px Arial';
     
     // Draw label background
-    ctx.fillStyle = color;
-    const labelWidth = ctx.measureText(label).width + 10;
+    ctx.fillStyle = isEmergency ? '#ff00ff' : color;
+    const labelWidth = ctx.measureText(labelText).width + 10;
     ctx.fillRect(x, y - 22, labelWidth, 22);
     
     // Draw label text
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(label, x + 5, y - 6);
+    ctx.fillText(labelText, x + 5, y - 6);
     
     // Draw tracking lines and distance estimates for some objects with improved visibility
     if (['car', 'truck', 'bus', 'person', 'pedestrian'].includes(type.toLowerCase())) {
@@ -611,10 +819,25 @@ class DetectionService {
       ctx.stroke();
       
       // Draw distance estimate
-      const distance = (50 / height * 100).toFixed(1); // Rough estimate based on object size
-      ctx.fillStyle = `${color}dd`;
-      ctx.font = '12px Arial';
-      ctx.fillText(`~${distance}m`, x + width/2 - 15, y + height + 40);
+      let displayDistance = distance ? distance.toFixed(1) : (50 / height * 100).toFixed(1);
+      ctx.fillStyle = distance && distance < 30 ? '#ff3333dd' : `${color}dd`;
+      ctx.font = distance && distance < 30 ? 'bold 12px Arial' : '12px Arial';
+      ctx.fillText(`${displayDistance}m`, x + width/2 - 15, y + height + 40);
+      
+      // Add warning indicator for close objects
+      if (distance && distance < 15) {
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        const warningX = x + width/2;
+        const warningY = y + height + 55;
+        ctx.arc(warningX, warningY, 10, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Arial';
+        const warningTextWidth = ctx.measureText('!').width;
+        ctx.fillText('!', warningX - warningTextWidth/2, warningY + 5);
+      }
     }
   }
 }

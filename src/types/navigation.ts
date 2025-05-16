@@ -65,6 +65,14 @@ export interface CO2Savings {
   treesEquivalent: number;
 }
 
+export interface PointOfInterest {
+  type: string;
+  name: string;
+  distance: number;
+  direction: string;
+  confidence: number;
+}
+
 export interface NavigationState {
   isRouteSet: boolean;
   currentLocation: Location | null;
@@ -77,4 +85,17 @@ export interface NavigationState {
   emergencyStatus: EmergencyStatus;
   weather: WeatherInfo | null;
   co2Savings: CO2Savings;
+}
+
+export interface NavigationContextType {
+  navigationState: NavigationState;
+  setCurrentLocation: (location: Location) => void;
+  setDestination: (destination: Location) => void;
+  startNavigation: () => void;
+  stopNavigation: () => void;
+  isNavigating: boolean;
+  updateDetectedObjects: (objects: DetectedObject[]) => void;
+  updateLaneOffset: (laneOffset: LaneOffset) => void;
+  updateCO2Savings: () => void;
+  updateEmergencyStatus: (status: EmergencyStatus) => void;
 }
