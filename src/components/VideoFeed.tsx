@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
 import { useObjectDetection } from '@/hooks/useObjectDetection';
@@ -36,22 +36,27 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const [showMapApiInput, setShowMapApiInput] = useState<boolean>(!localStorage.getItem('mapApiKey'));
   const { toast } = useToast();
 
-  const handleSaveMapApiKey = () => {
+  const handleSaveMapApiKey = useCallback(() => {
     localStorage.setItem('mapApiKey', mapApiKey);
     setShowMapApiInput(false);
     toast({
       title: "API key saved",
       description: "Map API key has been saved successfully"
     });
-  };
+  }, [mapApiKey, toast]);
 
-  // Ensure video keeps playing when tab regains focus
+  // Ensure video keeps playing when tab regains focus with error handling
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && videoRef.current && !isCameraActive) {
-        videoRef.current.play().catch(error => {
-          console.error("Error playing video:", error);
-        });
+        // Add a slight delay before attempting to play to ensure DOM is ready
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.play().catch(error => {
+              console.error("Error playing video:", error);
+            });
+          }
+        }, 100);
       }
     };
 
@@ -75,6 +80,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         playsInline
         autoPlay
         className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+        key={isCameraActive ? 'camera' : videoSrc} // Add key to force remounting
       />
       
       {/* Canvas overlay for object detection */}

@@ -25,6 +25,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [emergencyActive, setEmergencyActive] = useState<boolean>(false);
   const [timeDisplay, setTimeDisplay] = useState<string>('');
+  const emergencyHandlerRef = useRef<((e: Event) => void) | null>(null);
   
   // Initialize canvas size when video dimensions are available
   useEffect(() => {
@@ -85,7 +86,13 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     const animationId = requestAnimationFrame(calculateFps);
     
     // Check for emergency conditions in another component
-    window.addEventListener('emergency-detected', ((e: CustomEvent) => {
+    // Use a single event handler reference to avoid multiple listeners
+    if (emergencyHandlerRef.current) {
+      window.removeEventListener('emergency-detected', emergencyHandlerRef.current);
+    }
+    
+    // Create new handler and store reference for cleanup
+    emergencyHandlerRef.current = ((e: CustomEvent) => {
       if (!isRecording) {
         console.log('Emergency detected, starting recording');
         setIsRecording(true);
@@ -101,12 +108,17 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
           }, 10000);
         }, 5000);
       }
-    }) as EventListener);
+    }) as EventListener;
+    
+    // Add the event listener
+    window.addEventListener('emergency-detected', emergencyHandlerRef.current);
     
     // Cleanup
     return () => {
       cancelAnimationFrame(animationId);
-      window.removeEventListener('emergency-detected', ((e: CustomEvent) => {}) as EventListener);
+      if (emergencyHandlerRef.current) {
+        window.removeEventListener('emergency-detected', emergencyHandlerRef.current);
+      }
     };
   }, [objectDetectionEnabled, isRecording]);
 

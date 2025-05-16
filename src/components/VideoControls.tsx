@@ -37,6 +37,16 @@ const VideoControls: React.FC<VideoControlsProps> = ({
     const file = event.target.files?.[0];
     if (file) {
       onFileUpload(file);
+      // Reset the input value after handling the file
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
+  };
+  
+  const handleToggleCamera = () => {
+    if (toggleCameraStream) {
+      toggleCameraStream();
     }
   };
 
@@ -46,7 +56,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
       <div className="absolute top-16 right-4 z-10 flex flex-col space-y-2">
         {toggleCameraStream && (
           <Button 
-            onClick={toggleCameraStream} 
+            onClick={handleToggleCamera}
             variant={isCameraActive ? "destructive" : "secondary"} 
             size="sm" 
             className={`${isCameraActive ? "" : "bg-black/50 hover:bg-black/70"} flex items-center`}

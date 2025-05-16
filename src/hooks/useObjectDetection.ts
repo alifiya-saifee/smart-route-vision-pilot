@@ -22,6 +22,7 @@ export const useObjectDetection = () => {
   const requestIdRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<BlobPart[]>([]);
+  const emergencyEventDispatchedRef = useRef<boolean>(false);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -105,7 +106,7 @@ export const useObjectDetection = () => {
     initializeDetection();
     
     // Set up emergency detection event listener
-    window.addEventListener('emergency-detected', ((e: CustomEvent) => {
+    const handleEmergencyEvent = ((e: CustomEvent) => {
       console.log('Emergency detected event received', e.detail);
       setEmergencyMode(true);
       startRecording();
@@ -123,7 +124,10 @@ export const useObjectDetection = () => {
         duration: 0,
         response: "Recording started, scanning for nearby medical facilities"
       });
-    }) as EventListener);
+    }) as EventListener;
+    
+    // Add event listener
+    window.addEventListener('emergency-detected', handleEmergencyEvent);
     
     // Clean up function
     return () => {
@@ -136,7 +140,7 @@ export const useObjectDetection = () => {
         requestIdRef.current = null;
       }
       
-      window.removeEventListener('emergency-detected', (() => {}) as EventListener);
+      window.removeEventListener('emergency-detected', handleEmergencyEvent);
       
       // Stop recording if active
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -162,6 +166,13 @@ export const useObjectDetection = () => {
   // Start recording function for emergency mode
   const startRecording = async () => {
     try {
+      // Prevent multiple simultaneous recordings
+      if (emergencyEventDispatchedRef.current) {
+        return;
+      }
+      
+      emergencyEventDispatchedRef.current = true;
+      
       const videoElement = document.querySelector('video');
       if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
         throw new Error('Video element not found');
@@ -188,10 +199,16 @@ export const useObjectDetection = () => {
         
         // Show notification
         VoiceAlertService.speak("Emergency recording saved", "general", 2);
+        
+        // Reset emergency flag after a delay
+        setTimeout(() => {
+          emergencyEventDispatchedRef.current = false;
+        }, 2000);
       }, 10000);
       
     } catch (error) {
       console.error('Error starting recording:', error);
+      emergencyEventDispatchedRef.current = false;
     }
   };
 
