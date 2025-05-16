@@ -1,7 +1,7 @@
 
 import React, { useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Upload, Camera, CameraOff } from 'lucide-react';
+import { Upload, Camera, CameraOff, Hospital } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -14,6 +14,7 @@ interface VideoControlsProps {
   isLoaded: boolean;
   toggleCameraStream?: () => void;
   isCameraActive?: boolean;
+  triggerEmergency?: () => void;
 }
 
 const VideoControls: React.FC<VideoControlsProps> = ({
@@ -24,7 +25,8 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   detectFrameCount,
   isLoaded,
   toggleCameraStream,
-  isCameraActive = false
+  isCameraActive = false,
+  triggerEmergency
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -47,6 +49,17 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   const handleToggleCamera = () => {
     if (toggleCameraStream) {
       toggleCameraStream();
+    }
+  };
+  
+  const handleEmergency = () => {
+    if (triggerEmergency) {
+      triggerEmergency();
+      toast({
+        title: "Emergency Mode Activated",
+        description: "Scanning for nearest emergency services",
+        variant: "destructive"
+      });
     }
   };
 
@@ -94,6 +107,18 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         >
           {objectDetectionEnabled ? "Disable Detection" : "Enable Detection"}
         </Button>
+        
+        {objectDetectionEnabled && triggerEmergency && (
+          <Button 
+            onClick={handleEmergency}
+            variant="destructive"
+            size="sm"
+            className="bg-red-500 hover:bg-red-600"
+          >
+            <Hospital className="mr-2 h-4 w-4" />
+            Emergency
+          </Button>
+        )}
         
         <input 
           ref={fileInputRef}

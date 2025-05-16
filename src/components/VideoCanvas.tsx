@@ -1,6 +1,5 @@
-
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Camera, CameraOff } from 'lucide-react';
+import { Clock, Camera, CameraOff, Hospital } from 'lucide-react';
 
 interface VideoCanvasProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -25,7 +24,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [emergencyActive, setEmergencyActive] = useState<boolean>(false);
   const [timeDisplay, setTimeDisplay] = useState<string>('');
-  const emergencyHandlerRef = useRef<((e: Event) => void) | null>(null);
+  const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]);
   
   // Initialize canvas size when video dimensions are available
   useEffect(() => {
@@ -49,7 +48,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     return () => clearInterval(timeInterval);
   }, []);
   
-  // Set up FPS counter and recording logic
+  // Set up FPS counter and emergency mode handling
   useEffect(() => {
     if (!objectDetectionEnabled) {
       if (isRecording) {
@@ -85,40 +84,41 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     // Start FPS calculation
     const animationId = requestAnimationFrame(calculateFps);
     
-    // Check for emergency conditions in another component
-    // Use a single event handler reference to avoid multiple listeners
-    if (emergencyHandlerRef.current) {
-      window.removeEventListener('emergency-detected', emergencyHandlerRef.current);
-    }
-    
-    // Create new handler and store reference for cleanup
-    emergencyHandlerRef.current = ((e: CustomEvent) => {
-      if (!isRecording) {
-        console.log('Emergency detected, starting recording');
-        setIsRecording(true);
-        setEmergencyActive(true);
-        
-        // Simulate emergency data gathering
+    // Handle emergency event detection (now it's just for display, triggered by button)
+    const handleEmergencyEvent = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      console.log('Emergency detected, starting recording', customEvent.detail);
+      setIsRecording(true);
+      setEmergencyActive(true);
+      
+      // Set simulated nearby hospitals
+      setNearbyHospitals([
+        { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
+        { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
+      ]);
+      
+      // Simulate emergency data gathering
+      setTimeout(() => {
+        // In a real implementation this would continue recording until the emergency is over
+        setEmergencyActive(false);
+        // Keep recording for a few more seconds
         setTimeout(() => {
-          // In a real implementation this would continue recording until the emergency is over
-          setEmergencyActive(false);
-          // Keep recording for a few more seconds
+          setIsRecording(false);
+          // Keep showing hospitals for a bit longer
           setTimeout(() => {
-            setIsRecording(false);
-          }, 10000);
-        }, 5000);
-      }
-    }) as EventListener;
+            setNearbyHospitals([]);
+          }, 5000);
+        }, 10000);
+      }, 5000);
+    };
     
     // Add the event listener
-    window.addEventListener('emergency-detected', emergencyHandlerRef.current);
+    window.addEventListener('emergency-detected', handleEmergencyEvent);
     
     // Cleanup
     return () => {
       cancelAnimationFrame(animationId);
-      if (emergencyHandlerRef.current) {
-        window.removeEventListener('emergency-detected', emergencyHandlerRef.current);
-      }
+      window.removeEventListener('emergency-detected', handleEmergencyEvent);
     };
   }, [objectDetectionEnabled, isRecording]);
 
@@ -169,14 +169,53 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         </div>
       )}
       
-      {/* POI indicators when detected */}
-      {objectDetectionEnabled && (
+      {/* Hospital or emergency services indicators */}
+      {objectDetectionEnabled && nearbyHospitals.length > 0 && (
+        <div className="absolute bottom-4 left-4 flex flex-col gap-2">
+          {nearbyHospitals.map((hospital, index) => (
+            <EmergencyServiceIndicator 
+              key={index} 
+              name={hospital.name} 
+              distance={hospital.distance} 
+              direction={hospital.direction}
+            />
+          ))}
+        </div>
+      )}
+      
+      {/* Regular POI indicators when detected (only show when not in emergency mode) */}
+      {objectDetectionEnabled && nearbyHospitals.length === 0 && (
         <div className="absolute bottom-4 right-4 flex flex-col gap-2">
           <PointOfInterestIndicator type="hospital" distance="1.2km" direction="ahead" />
           <PointOfInterestIndicator type="gas" distance="0.8km" direction="right" />
         </div>
       )}
     </>
+  );
+};
+
+// Component for showing emergency services (hospitals, police, etc.)
+const EmergencyServiceIndicator = ({ 
+  name,
+  distance, 
+  direction 
+}: { 
+  name: string;
+  distance: string; 
+  direction: string 
+}) => {
+  return (
+    <div className="bg-red-500/90 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
+      <Hospital className="w-5 h-5" />
+      <div className="flex flex-col">
+        <span className="font-bold">{name}</span>
+        <div className="flex text-xs">
+          <span>{distance}</span>
+          <span className="mx-1">•</span>
+          <span>{direction}</span>
+        </div>
+      </div>
+    </div>
   );
 };
 

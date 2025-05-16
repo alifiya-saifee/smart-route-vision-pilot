@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
@@ -26,7 +27,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     objectDetectionEnabled,
     detectFrameCount,
     processing,
-    toggleObjectDetection
+    toggleObjectDetection,
+    triggerEmergencyMode
   } = useObjectDetection();
   
   const [mapApiKey, setMapApiKey] = useState<string>(() => {
@@ -131,6 +133,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         isLoaded={isLoaded}
         toggleCameraStream={toggleCameraStream}
         isCameraActive={isCameraActive}
+        triggerEmergency={triggerEmergencyMode}
       />
     </div>
   );

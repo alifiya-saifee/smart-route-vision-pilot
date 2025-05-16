@@ -22,7 +22,6 @@ export const useObjectDetection = () => {
   const requestIdRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<BlobPart[]>([]);
-  const emergencyEventDispatchedRef = useRef<boolean>(false);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -105,30 +104,6 @@ export const useObjectDetection = () => {
     
     initializeDetection();
     
-    // Set up emergency detection event listener
-    const handleEmergencyEvent = ((e: CustomEvent) => {
-      console.log('Emergency detected event received', e.detail);
-      setEmergencyMode(true);
-      startRecording();
-      
-      // Update emergency status through navigation context
-      updateEmergencyStatus({
-        active: true,
-        level: "critical",
-        type: "collision_risk",
-        triggers: [{
-          type: "proximity",
-          level: "critical",
-          details: "Vehicle too close"
-        }],
-        duration: 0,
-        response: "Recording started, scanning for nearby medical facilities"
-      });
-    }) as EventListener;
-    
-    // Add event listener
-    window.addEventListener('emergency-detected', handleEmergencyEvent);
-    
     // Clean up function
     return () => {
       if (processingTimerRef.current) {
@@ -140,14 +115,12 @@ export const useObjectDetection = () => {
         requestIdRef.current = null;
       }
       
-      window.removeEventListener('emergency-detected', handleEmergencyEvent);
-      
       // Stop recording if active
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
       }
     };
-  }, [updateEmergencyStatus]);
+  }, []);
 
   // Setup CO2 updating at regular intervals
   useEffect(() => {
@@ -163,16 +136,55 @@ export const useObjectDetection = () => {
     };
   }, [objectDetectionEnabled, updateCO2Savings]);
 
+  // Function to trigger emergency mode manually
+  const triggerEmergencyMode = () => {
+    if (emergencyMode) return; // Don't trigger if already in emergency mode
+    
+    setEmergencyMode(true);
+    startRecording();
+    
+    // Update emergency status through navigation context
+    updateEmergencyStatus({
+      active: true,
+      level: "critical",
+      type: "manual_emergency",
+      triggers: [{
+        type: "user_initiated",
+        level: "critical",
+        details: "Emergency services requested"
+      }],
+      duration: 0,
+      response: "Locating nearest hospital and emergency services"
+    });
+    
+    // Create and dispatch custom event for other components to react to
+    const emergencyEvent = new CustomEvent('emergency-detected', {
+      detail: { type: 'manual', timestamp: Date.now() }
+    });
+    window.dispatchEvent(emergencyEvent);
+    
+    // Announce emergency mode
+    VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
+    
+    // End emergency mode after some time
+    setTimeout(() => {
+      setEmergencyMode(false);
+      updateEmergencyStatus({
+        active: false,
+        level: "none",
+        type: null,
+        triggers: [],
+        duration: 0
+      });
+      
+      console.log('✅ Emergency recording stopped and saved');
+      VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
+    }, 10000);
+  };
+
   // Start recording function for emergency mode
   const startRecording = async () => {
     try {
-      // Prevent multiple simultaneous recordings
-      if (emergencyEventDispatchedRef.current) {
-        return;
-      }
-      
-      emergencyEventDispatchedRef.current = true;
-      
       const videoElement = document.querySelector('video');
       if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
         throw new Error('Video element not found');
@@ -183,32 +195,9 @@ export const useObjectDetection = () => {
       console.log('⚠️ Emergency recording started');
       
       // Simulate recording functionality
-      setTimeout(() => {
-        // End emergency mode after some time (simulated)
-        setEmergencyMode(false);
-        console.log('✅ Emergency recording stopped and saved');
-        
-        // Update emergency status
-        updateEmergencyStatus({
-          active: false,
-          level: "none",
-          type: null,
-          triggers: [],
-          duration: 0
-        });
-        
-        // Show notification
-        VoiceAlertService.speak("Emergency recording saved", "general", 2);
-        
-        // Reset emergency flag after a delay
-        setTimeout(() => {
-          emergencyEventDispatchedRef.current = false;
-        }, 2000);
-      }, 10000);
-      
+      // In a real application, you would implement actual recording here
     } catch (error) {
       console.error('Error starting recording:', error);
-      emergencyEventDispatchedRef.current = false;
     }
   };
 
@@ -218,15 +207,39 @@ export const useObjectDetection = () => {
     // Save the latest detection results
     detectionResultsRef.current = results;
     
-    // Update emergency mode status
-    if (results.emergency !== emergencyMode) {
-      setEmergencyMode(results.emergency);
+    // Update emergency mode status from results (only if we're in emergency mode)
+    if (emergencyMode && results.emergency === false) {
+      // Don't auto-disable emergency mode from detection results
+      // since we now only trigger it manually
     }
     
     // Check for high priority objects (pedestrians, traffic signs)
     highPriorityDetectionRef.current = results.objects.some((obj: any) => 
       ['person', 'pedestrian', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
     );
+    
+    // In emergency mode, add nearby hospitals to the detection results
+    if (emergencyMode) {
+      // Simulate finding nearby hospitals
+      const nearbyHospitals = [
+        { 
+          type: 'hospital',
+          name: 'Memorial Hospital',
+          distance: '1.2 miles',
+          direction: 'ahead',
+          coordinates: { lat: 40.7128, lng: -74.006 }
+        },
+        {
+          type: 'hospital',
+          name: 'City Medical Center',
+          distance: '2.8 miles',
+          direction: 'right',
+          coordinates: { lat: 40.7138, lng: -74.016 }
+        }
+      ];
+      
+      results.pois = nearbyHospitals;
+    }
     
     // Throttle updates to avoid overwhelming the UI
     if (now - lastDetectionTime.current > 80) { // More frequent updates for real-time
@@ -281,6 +294,7 @@ export const useObjectDetection = () => {
     detectFrameCount,
     processing,
     emergencyMode,
-    toggleObjectDetection
+    toggleObjectDetection,
+    triggerEmergencyMode
   };
 };
