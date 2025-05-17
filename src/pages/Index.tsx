@@ -1,6 +1,6 @@
 
 import React, { useEffect } from 'react';
-import VideoFeed from '@/components/VideoFeed';
+import VideoFeedWrapper from '@/components/video/VideoFeedWrapper';
 import NavigationPanel from '@/components/NavigationPanel';
 import LanePositionIndicator from '@/components/LanePositionIndicator';
 import ObjectDetection from '@/components/ObjectDetection';
@@ -38,7 +38,7 @@ const Index = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
           {/* Main video feed */}
           <div className="lg:col-span-8 h-[50vh] md:h-[60vh]">
-            <VideoFeed className="w-full h-full" />
+            <VideoFeedWrapper className="w-full h-full" />
           </div>
           
           {/* Side panels */}
