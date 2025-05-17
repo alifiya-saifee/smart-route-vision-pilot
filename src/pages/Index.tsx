@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationProvider } from '@/context/NavigationContext';
 import VideoFeed from '@/components/VideoFeed';
 import NavigationPanel from '@/components/NavigationPanel';
@@ -9,8 +9,20 @@ import EmergencyAlert from '@/components/EmergencyAlert';
 import WeatherAndEco from '@/components/WeatherAndEco';
 import RouteControls from '@/components/RouteControls';
 import RouteMap from '@/components/RouteMap';
+import { clearToasts } from '@/components/ui/use-toast';
 
 const Index = () => {
+  // Clear any stale toasts on mount and unmount
+  useEffect(() => {
+    // Clear any existing toasts on component mount
+    clearToasts();
+    
+    return () => {
+      // Clear toasts on unmount to prevent state conflicts
+      clearToasts();
+    };
+  }, []);
+  
   return (
     <NavigationProvider>
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">

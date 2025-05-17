@@ -7,7 +7,10 @@ const safeToast = (props: Parameters<typeof toast>[0]) => {
     // Use requestAnimationFrame to ensure DOM is ready
     requestAnimationFrame(() => {
       try {
-        toast(props);
+        // Check if document is still available (not during unmounting)
+        if (typeof document !== 'undefined' && document.body) {
+          toast(props);
+        }
       } catch (error) {
         console.error("Error showing toast:", error);
       }
@@ -17,4 +20,25 @@ const safeToast = (props: Parameters<typeof toast>[0]) => {
   }
 };
 
-export { useToast, toast, safeToast };
+// Add a function to clear all toasts safely
+const clearToasts = () => {
+  try {
+    requestAnimationFrame(() => {
+      try {
+        // Get the toast context and clear all toasts
+        const { toasts, dismiss } = useToast.getState();
+        if (toasts && dismiss) {
+          toasts.forEach(t => {
+            if (t.id) dismiss(t.id);
+          });
+        }
+      } catch (error) {
+        console.error("Error clearing toasts:", error);
+      }
+    });
+  } catch (error) {
+    console.error("Error in clearToasts:", error);
+  }
+};
+
+export { useToast, toast, safeToast, clearToasts };
