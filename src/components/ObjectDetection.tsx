@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import { 
   AlertCircle, Car, User, Truck, Bus, Bike, CircleAlert, 
-  Octagon, Box, AlertTriangle
+  Octagon, Box, AlertTriangle, BarChart
 } from 'lucide-react';
 import { DetectedObject } from '@/types/navigation';
 
@@ -16,9 +16,13 @@ const DetectionModelType = {
 
 interface ObjectDetectionProps {
   className?: string;
+  confidenceThreshold?: number;
 }
 
-const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
+const ObjectDetection: React.FC<ObjectDetectionProps> = ({ 
+  className,
+  confidenceThreshold = 0.5
+}) => {
   const { navigationState } = useNavigation();
   const { detectedObjects, laneOffset } = navigationState;
   
@@ -99,16 +103,21 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
     // In a real implementation, this would process video frames
   };
   
+  // Filter objects by confidence threshold
+  const filteredObjects = detectedObjects.filter(obj => 
+    typeof obj.confidence === 'undefined' || obj.confidence >= confidenceThreshold
+  );
+  
   // Group objects by potential risk (using the logic from the existing code)
-  const highRiskObjects = detectedObjects.filter(obj => 
+  const highRiskObjects = filteredObjects.filter(obj => 
     ['person', 'bicycle', 'motorcycle', 'pedestrian'].includes(obj.type.toLowerCase())
   );
   
-  const mediumRiskObjects = detectedObjects.filter(obj => 
+  const mediumRiskObjects = filteredObjects.filter(obj => 
     ['car', 'truck', 'bus', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
   );
   
-  const lowRiskObjects = detectedObjects.filter(obj => 
+  const lowRiskObjects = filteredObjects.filter(obj => 
     !['person', 'pedestrian', 'bicycle', 'motorcycle', 'car', 'truck', 'bus', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
   );
 
@@ -145,7 +154,7 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
     }
     
     // Draw objects
-    detectedObjects.forEach((obj, index) => {
+    filteredObjects.forEach((obj, index) => {
       // Determine color based on risk level
       let color = '#3b82f6'; // blue for default
       const lowerType = obj.type.toLowerCase();
@@ -170,7 +179,13 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
       
       // Draw label background
       context.fillStyle = color;
-      const label = `${obj.type} (${obj.count})`;
+      let label = `${obj.type} (${obj.count})`;
+      
+      // Add confidence if available
+      if (typeof obj.confidence !== 'undefined') {
+        label = `${obj.type} (${Math.round(obj.confidence * 100)}%)`;
+      }
+      
       const labelWidth = context.measureText(label).width + 10;
       context.fillRect(xPos, yPos - 20, labelWidth, 20);
       
@@ -179,7 +194,7 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
       context.font = '12px Arial';
       context.fillText(label, xPos + 5, yPos - 5);
     });
-  }, [detectedObjects]);
+  }, [filteredObjects, confidenceThreshold]);
   
   // Draw lane detection visualization
   useEffect(() => {
@@ -266,7 +281,15 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
     <div className={`navigation-panel relative ${className || ''}`}>
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-lg font-bold">Road Detection</h2>
-        <div className="text-xs px-2 py-1 bg-blue-500/20 rounded text-blue-300">{modelStatus}</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs px-2 py-1 bg-blue-500/20 rounded text-blue-300">{modelStatus}</div>
+          {confidenceThreshold > 0 && (
+            <div className="text-xs px-2 py-1 bg-green-500/20 rounded text-green-300 flex items-center">
+              <BarChart className="w-3 h-3 mr-1" />
+              {Math.round(confidenceThreshold * 100)}% threshold
+            </div>
+          )}
+        </div>
       </div>
       
       {/* Lane detection visualization */}
@@ -286,9 +309,12 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
       {/* Object detection section */}
       <h3 className="text-sm font-medium mb-2">Object Detection</h3>
       
-      {detectedObjects.length === 0 ? (
+      {filteredObjects.length === 0 ? (
         <div className="text-center py-4 text-gray-400">
-          <p>No objects detected</p>
+          <p>{detectedObjects.length > 0 
+            ? `No objects above ${Math.round(confidenceThreshold * 100)}% confidence threshold` 
+            : "No objects detected"}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -298,6 +324,11 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
               ref={canvasRef} 
               className="w-full h-full" 
             />
+            {detectedObjects.length > filteredObjects.length && (
+              <div className="absolute top-2 right-2 bg-black/60 text-xs px-2 py-1 rounded text-white">
+                Filtered out: {detectedObjects.length - filteredObjects.length} objects
+              </div>
+            )}
           </div>
           
           {highRiskObjects.length > 0 && (
@@ -312,7 +343,11 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
                     <span className="text-lg">{getObjectIcon(obj.type)}</span>
                     <div>
                       <span className="text-xs text-gray-300">{obj.type}</span>
-                      <span className="text-sm font-bold ml-1 text-white">{obj.count}</span>
+                      {obj.confidence ? (
+                        <span className="text-sm font-bold ml-1 text-white">{Math.round(obj.confidence * 100)}%</span>
+                      ) : (
+                        <span className="text-sm font-bold ml-1 text-white">{obj.count}</span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -332,7 +367,11 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
                     <span className="text-lg">{getObjectIcon(obj.type)}</span>
                     <div>
                       <span className="text-xs text-gray-300">{obj.type}</span>
-                      <span className="text-sm font-bold ml-1 text-white">{obj.count}</span>
+                      {obj.confidence ? (
+                        <span className="text-sm font-bold ml-1 text-white">{Math.round(obj.confidence * 100)}%</span>
+                      ) : (
+                        <span className="text-sm font-bold ml-1 text-white">{obj.count}</span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -352,7 +391,11 @@ const ObjectDetection: React.FC<ObjectDetectionProps> = ({ className }) => {
                     <span className="text-lg">{getObjectIcon(obj.type)}</span>
                     <div>
                       <span className="text-xs text-gray-300">{obj.type}</span>
-                      <span className="text-sm font-bold ml-1 text-white">{obj.count}</span>
+                      {obj.confidence ? (
+                        <span className="text-sm font-bold ml-1 text-white">{Math.round(obj.confidence * 100)}%</span>
+                      ) : (
+                        <span className="text-sm font-bold ml-1 text-white">{obj.count}</span>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -10,6 +10,7 @@ export const useObjectDetection = () => {
   const [detectFrameCount, setDetectFrameCount] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [emergencyMode, setEmergencyMode] = useState(false);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5); // Default 50% threshold
   const processingTimerRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(Date.now());
   const detectionResultsRef = useRef<any>({ 
@@ -217,8 +218,13 @@ export const useObjectDetection = () => {
       // since we now only trigger it manually
     }
     
+    // Apply confidence threshold filtering
+    const filteredObjects = results.objects.filter((obj: any) => 
+      obj.confidence >= confidenceThreshold
+    );
+    
     // Check for high priority objects (pedestrians, traffic signs)
-    highPriorityDetectionRef.current = results.objects.some((obj: any) => 
+    highPriorityDetectionRef.current = filteredObjects.some((obj: any) => 
       ['person', 'pedestrian', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
     );
     
@@ -250,9 +256,9 @@ export const useObjectDetection = () => {
     if (now - lastDetectionTime.current > 50) { // More frequent updates for real-time
       lastDetectionTime.current = now;
       
-      if (results.objects && Array.isArray(results.objects)) {
+      if (filteredObjects && Array.isArray(filteredObjects)) {
         // Update detected objects in navigation context
-        updateDetectedObjects(results.objects);
+        updateDetectedObjects(filteredObjects);
       }
       
       if (results.lanes) {
@@ -296,6 +302,8 @@ export const useObjectDetection = () => {
     detectFrameCount,
     processing,
     emergencyMode,
+    confidenceThreshold,
+    setConfidenceThreshold,
     toggleObjectDetection,
     triggerEmergencyMode
   };

@@ -1,3 +1,4 @@
+
 // This service handles the integration between the React frontend and detection models
 // It simulates the bridge between our React app and models for object and lane detection
 import VoiceAlertService from './VoiceAlertService';
@@ -420,6 +421,7 @@ class DetectionService {
   
   /**
    * Generate realistic-looking detected objects based on position in a road scene
+   * Now with variable confidence levels
    */
   generateRealisticObjects(width: number, height: number) {
     const objects = [];
@@ -431,7 +433,8 @@ class DetectionService {
           y: height * (0.5 + Math.random() * 0.2),
           w: width * (0.1 + Math.random() * 0.08),
           h: height * (0.05 + Math.random() * 0.04)
-        })
+        }),
+        confidenceRange: [0.65, 0.98] // Most cars are detected with high confidence
       },
       { type: "Person", 
         probability: 0.3, 
@@ -440,7 +443,8 @@ class DetectionService {
           y: height * (0.5 + Math.random() * 0.3),
           w: width * 0.03,
           h: height * 0.1
-        })
+        }),
+        confidenceRange: [0.4, 0.95] // People can be harder to detect
       },
       { type: "Truck", 
         probability: 0.2, 
@@ -449,7 +453,8 @@ class DetectionService {
           y: height * (0.4 + Math.random() * 0.2),
           w: width * (0.15 + Math.random() * 0.08),
           h: height * (0.08 + Math.random() * 0.05)
-        })
+        }),
+        confidenceRange: [0.7, 0.95] // Trucks are easy to detect
       },
       { type: "Traffic Light", 
         probability: 0.4, 
@@ -458,7 +463,8 @@ class DetectionService {
           y: height * (0.2 + Math.random() * 0.2),
           w: width * 0.03,
           h: height * 0.05
-        })
+        }),
+        confidenceRange: [0.3, 0.85] // Traffic lights can be harder to detect
       },
       { type: "Stop Sign", 
         probability: 0.15, 
@@ -467,7 +473,8 @@ class DetectionService {
           y: height * (0.25 + Math.random() * 0.1),
           w: width * 0.04,
           h: height * 0.04
-        })
+        }),
+        confidenceRange: [0.4, 0.9] // Stop signs medium difficulty
       },
       { type: "Bicycle", 
         probability: 0.2, 
@@ -476,7 +483,8 @@ class DetectionService {
           y: height * (0.6 + Math.random() * 0.2),
           w: width * 0.04,
           h: height * 0.07
-        })
+        }),
+        confidenceRange: [0.3, 0.8] // Bicycles can be hard to detect
       },
       // Add car behind for collision detection
       { type: "Car Behind", 
@@ -486,7 +494,29 @@ class DetectionService {
           y: height * (0.85 + Math.random() * 0.1),
           w: width * (0.15 + Math.random() * 0.05),
           h: height * (0.08 + Math.random() * 0.03)
-        })
+        }),
+        confidenceRange: [0.5, 0.9] // Cars behind medium difficulty
+      },
+      // Add more object types with low confidence for testing threshold
+      { type: "Pothole", 
+        probability: 0.15, 
+        position: () => ({ 
+          x: width * (0.3 + Math.random() * 0.4), 
+          y: height * (0.7 + Math.random() * 0.2),
+          w: width * 0.05,
+          h: width * 0.05
+        }),
+        confidenceRange: [0.1, 0.4] // Potholes are hard to detect
+      },
+      { type: "Animal", 
+        probability: 0.1, 
+        position: () => ({ 
+          x: width * (Math.random() > 0.5 ? 0.1 : 0.9), 
+          y: height * (0.6 + Math.random() * 0.2),
+          w: width * 0.04,
+          h: width * 0.03
+        }),
+        confidenceRange: [0.2, 0.6] // Animals are hard to detect
       }
     ];
     
@@ -506,6 +536,11 @@ class DetectionService {
             ? (Math.random() * 45) // Random distance for car behind (0-45 meters)
             : 50 + Math.random() * 50; // Further for other objects
           
+          // Generate realistic confidence value
+          const confidenceMin = obj.confidenceRange[0];
+          const confidenceMax = obj.confidenceRange[1];
+          const confidence = confidenceMin + Math.random() * (confidenceMax - confidenceMin);
+          
           // Add emergency car with low probability
           let emergencyVehicle = false;
           if ((obj.type === "Car" || obj.type === "Truck") && Math.random() > 0.95) {
@@ -515,7 +550,7 @@ class DetectionService {
           objects.push({
             type: obj.type === "Car Behind" ? "Car" : obj.type, // Normalize the type
             count: 1,
-            confidence: 0.7 + Math.random() * 0.25,
+            confidence: confidence, // Add variable confidence for threshold filtering
             distance: distance,
             emergency: emergencyVehicle,
             boundingBox: {
@@ -736,13 +771,14 @@ class DetectionService {
   
   /**
    * Draw object detection boxes with improved real-time visualization
+   * Now displays confidence values
    */
   drawObjectOverlay(ctx: CanvasRenderingContext2D, object: any) {
     if (!object.boundingBox) return;
     
     const { x, y, width, height } = object.boundingBox;
     const type = object.type;
-    const confidence = object.confidence;
+    const confidence = object.confidence || 0;
     const distance = object.distance || null;
     const isEmergency = object.emergency || false;
     
@@ -799,9 +835,9 @@ class DetectionService {
     // Draw label with improved visibility
     const labelText = isEmergency 
       ? `${type} (Emergency)` 
-      : distance 
-        ? `${type} ${Math.round(confidence * 100)}% - ${distance.toFixed(1)}m` 
-        : `${type} ${Math.round(confidence * 100)}%`;
+      : confidence !== undefined
+        ? `${type} ${Math.round(confidence * 100)}%` 
+        : `${type}`;
     
     ctx.font = '13px Arial';
     
