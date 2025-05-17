@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import React, { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import { Clock, Camera, CameraOff, Hospital } from 'lucide-react';
 
 interface VideoCanvasProps {
@@ -34,20 +34,94 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const hospitalsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const eventAttachedRef = useRef<boolean>(false);
   
+  // Use a callback for emergency event handler to maintain stable reference
+  const handleEmergencyEvent = useCallback((e: Event) => {
+    // Prevent actions if component is unmounted
+    if (!isComponentMounted.current) return;
+    
+    // Prevent duplicate events
+    if (emergencyEventHandled.current) return;
+    emergencyEventHandled.current = true;
+    
+    const customEvent = e as CustomEvent;
+    console.log('Emergency detected, starting recording', customEvent.detail);
+    
+    // Use Promise instead of nested timeouts for better control flow
+    Promise.resolve().then(() => {
+      if (!isComponentMounted.current) return Promise.reject('Component unmounted');
+      
+      // Update state safely
+      setIsRecording(true);
+      setEmergencyActive(true);
+      
+      // Set simulated nearby hospitals
+      setNearbyHospitals([
+        { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
+        { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
+      ]);
+      
+      return new Promise<void>(resolve => {
+        if (!isComponentMounted.current) return;
+        
+        // Simulate emergency data gathering
+        emergencyTimeoutRef.current = setTimeout(() => {
+          if (!isComponentMounted.current) return;
+          resolve();
+        }, 5000) as unknown as NodeJS.Timeout;
+      });
+    }).then(() => {
+      if (!isComponentMounted.current) return Promise.reject('Component unmounted');
+      
+      setEmergencyActive(false);
+      
+      // Keep recording for a few more seconds
+      return new Promise<void>(resolve => {
+        if (!isComponentMounted.current) return;
+        
+        recordingTimeoutRef.current = setTimeout(() => {
+          if (!isComponentMounted.current) return;
+          resolve();
+        }, 5000) as unknown as NodeJS.Timeout;
+      });
+    }).then(() => {
+      if (!isComponentMounted.current) return;
+      
+      setIsRecording(false);
+      
+      // Keep showing hospitals for a bit longer
+      return new Promise<void>(resolve => {
+        if (!isComponentMounted.current) return;
+        
+        hospitalsTimeoutRef.current = setTimeout(() => {
+          if (!isComponentMounted.current) return;
+          
+          setNearbyHospitals([]);
+          emergencyEventHandled.current = false; // Reset for future events
+          resolve();
+        }, 2000) as unknown as NodeJS.Timeout;
+      });
+    }).catch(error => {
+      if (error !== 'Component unmounted') {
+        console.error('Error in emergency handling:', error);
+      }
+      // Reset state if there was an error and component is still mounted
+      if (isComponentMounted.current) {
+        setIsRecording(false);
+        setEmergencyActive(false);
+        setNearbyHospitals([]);
+        emergencyEventHandled.current = false;
+      }
+    });
+  }, []);
+  
   // Track component mount state and clean up all resources
   useEffect(() => {
     isComponentMounted.current = true;
     
-    // Define emergency event handler outside to ensure we can properly remove it
-    const handleEmergencyEventSafe = (e: Event) => {
-      if (!isComponentMounted.current) return;
-      handleEmergencyEvent(e);
-    };
-    
-    // Add event listener if needed - only attach once
+    // Add event listener only once
     if (!eventAttachedRef.current) {
       eventAttachedRef.current = true;
-      window.addEventListener('emergency-detected', handleEmergencyEventSafe);
+      window.addEventListener('emergency-detected', handleEmergencyEvent);
     }
     
     return () => {
@@ -82,14 +156,11 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       
       // Always remove event listeners - only if we attached them
       if (eventAttachedRef.current) {
-        window.removeEventListener('emergency-detected', handleEmergencyEventSafe);
+        window.removeEventListener('emergency-detected', handleEmergencyEvent);
         eventAttachedRef.current = false;
       }
-      
-      // Reset states - but don't trigger re-renders since we're unmounting
-      // This prevents any potential state updates during unmounting
     };
-  }, []);
+  }, [handleEmergencyEvent]);
   
   // Initialize canvas size when video dimensions are available
   useLayoutEffect(() => {
@@ -214,92 +285,18 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     };
   }, [objectDetectionEnabled, isRecording]);
   
-  // Handle emergency events with improved safety
-  const handleEmergencyEvent = (e: Event) => {
-    // Prevent actions if component is unmounted
-    if (!isComponentMounted.current) return;
-    
-    // Prevent duplicate events
-    if (emergencyEventHandled.current) return;
-    emergencyEventHandled.current = true;
-    
-    const customEvent = e as CustomEvent;
-    console.log('Emergency detected, starting recording', customEvent.detail);
-    
-    // Use Promise instead of nested timeouts for better control flow
-    Promise.resolve().then(() => {
-      if (!isComponentMounted.current) return Promise.reject('Component unmounted');
-      
-      // Update state safely
-      setIsRecording(true);
-      setEmergencyActive(true);
-      
-      // Set simulated nearby hospitals
-      setNearbyHospitals([
-        { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
-        { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
-      ]);
-      
-      return new Promise<void>(resolve => {
-        if (!isComponentMounted.current) return;
-        
-        // Simulate emergency data gathering
-        emergencyTimeoutRef.current = setTimeout(() => {
-          if (!isComponentMounted.current) return;
-          resolve();
-        }, 5000) as unknown as NodeJS.Timeout;
-      });
-    }).then(() => {
-      if (!isComponentMounted.current) return Promise.reject('Component unmounted');
-      
-      setEmergencyActive(false);
-      
-      // Keep recording for a few more seconds
-      return new Promise<void>(resolve => {
-        if (!isComponentMounted.current) return;
-        
-        recordingTimeoutRef.current = setTimeout(() => {
-          if (!isComponentMounted.current) return;
-          resolve();
-        }, 5000) as unknown as NodeJS.Timeout;
-      });
-    }).then(() => {
-      if (!isComponentMounted.current) return;
-      
-      setIsRecording(false);
-      
-      // Keep showing hospitals for a bit longer
-      return new Promise<void>(resolve => {
-        if (!isComponentMounted.current) return;
-        
-        hospitalsTimeoutRef.current = setTimeout(() => {
-          if (!isComponentMounted.current) return;
-          
-          setNearbyHospitals([]);
-          emergencyEventHandled.current = false; // Reset for future events
-          resolve();
-        }, 2000) as unknown as NodeJS.Timeout;
-      });
-    }).catch(error => {
-      if (error !== 'Component unmounted') {
-        console.error('Error in emergency handling:', error);
-      }
-      // Reset state if there was an error and component is still mounted
-      if (isComponentMounted.current) {
-        setIsRecording(false);
-        setEmergencyActive(false);
-        setNearbyHospitals([]);
-        emergencyEventHandled.current = false;
-      }
-    });
-  };
+  // Generate unique and stable keys for components
+  const canvasKey = `detection-canvas-${objectDetectionEnabled ? 'enabled' : 'disabled'}-${isCameraActive ? 'camera' : 'video'}`;
+  const hudKey = `video-hud-${objectDetectionEnabled ? 'enabled' : 'disabled'}-${isRecording ? 'recording' : 'normal'}`;
+  const emergencyKey = `emergency-alert-${emergencyActive ? 'active' : 'inactive'}`;
+  const hospitalsKey = `hospitals-container-${nearbyHospitals.length}`;
 
   // Add stable and unique keys for each element to prevent React reconciliation issues
   return (
     <>
       {canvasRef && (
         <canvas
-          key={`canvas-${isCameraActive ? 'camera' : 'video'}-${objectDetectionEnabled ? 'detection' : 'normal'}`}
+          key={canvasKey}
           ref={canvasRef}
           className={`absolute top-0 left-0 w-full h-full object-cover ${
             objectDetectionEnabled ? 'opacity-100' : 'opacity-0'
@@ -310,7 +307,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       {/* FPS counter, time and recording indicator - with stable key */}
       {objectDetectionEnabled && (
         <div 
-          key={`video-hud-${isCameraActive ? 'camera' : 'video'}-${isRecording ? 'recording' : 'normal'}`}
+          key={hudKey}
           className="absolute top-0 left-0 right-0 flex justify-between items-center bg-black/50 text-white px-2 py-1 text-xs"
         >
           <div
@@ -349,7 +346,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       {/* Emergency alert overlay */}
       {emergencyActive && isComponentMounted.current && (
         <div 
-          key="emergency-alert"
+          key={emergencyKey}
           className="absolute inset-0 border-4 border-red-600 animate-pulse pointer-events-none"
         >
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600/90 text-white px-4 py-2 rounded-full text-lg font-bold">
@@ -361,7 +358,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       {/* Hospital or emergency services indicators */}
       {objectDetectionEnabled && nearbyHospitals.length > 0 && isComponentMounted.current && (
         <div 
-          key="emergency-poi-container"
+          key={hospitalsKey}
           className="absolute bottom-4 left-4 flex flex-col gap-2"
         >
           {nearbyHospitals.map((hospital, index) => (

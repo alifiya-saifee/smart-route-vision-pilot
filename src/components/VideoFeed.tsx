@@ -45,17 +45,28 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const unmountingRef = useRef<boolean>(false);
   const safeOperationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const visibilityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mapApiKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Handle saving the map API key with debounce
   const handleSaveMapApiKey = useCallback(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
     
-    localStorage.setItem('mapApiKey', mapApiKey);
-    setShowMapApiInput(false);
-    toast({
-      title: "API key saved",
-      description: "Map API key has been saved successfully"
-    });
+    // Clear any existing timeouts first
+    if (mapApiKeyTimeoutRef.current) {
+      clearTimeout(mapApiKeyTimeoutRef.current);
+    }
+    
+    // Save after a short delay to prevent multiple saves
+    mapApiKeyTimeoutRef.current = setTimeout(() => {
+      if (!isMountedRef.current || unmountingRef.current) return;
+      
+      localStorage.setItem('mapApiKey', mapApiKey);
+      setShowMapApiInput(false);
+      toast({
+        title: "API key saved",
+        description: "Map API key has been saved successfully"
+      });
+    }, 300) as unknown as NodeJS.Timeout;
   }, [mapApiKey, toast]);
 
   // Track component mount state with better unmounting protection
@@ -78,6 +89,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         visibilityTimeoutRef.current = null;
       }
       
+      if (mapApiKeyTimeoutRef.current) {
+        clearTimeout(mapApiKeyTimeoutRef.current);
+        mapApiKeyTimeoutRef.current = null;
+      }
+      
       // Finally set mounted flag to false
       isMountedRef.current = false;
     };
@@ -93,7 +109,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     
     // Use Promise-based approach for better control flow
     Promise.resolve().then(() => {
-      if (!isMountedRef.current || unmountingRef.current) return;
+      if (!isMountedRef.current || unmountingRef.current) return Promise.reject('Component unmounted');
       
       // Call the actual toggle function
       toggleCameraStream();
@@ -114,7 +130,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         pendingOperationRef.current = false;
       }
     }).catch(error => {
-      console.error("Error toggling camera:", error);
+      if (error !== 'Component unmounted') {
+        console.error("Error toggling camera:", error);
+      }
       // Reset state on error
       if (isMountedRef.current && !unmountingRef.current) {
         setIsUpdatingVideo(false);
@@ -133,7 +151,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     
     // Use Promise-based approach
     Promise.resolve().then(() => {
-      if (!isMountedRef.current || unmountingRef.current) return;
+      if (!isMountedRef.current || unmountingRef.current) return Promise.reject('Component unmounted');
       
       // Handle the file upload
       handleFileUpload(file);
@@ -154,7 +172,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         pendingOperationRef.current = false;
       }
     }).catch(error => {
-      console.error("Error handling file upload:", error);
+      if (error !== 'Component unmounted') {
+        console.error("Error handling file upload:", error);
+      }
       // Reset state on error
       if (isMountedRef.current && !unmountingRef.current) {
         setIsUpdatingVideo(false);
@@ -181,9 +201,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         visibilityTimeoutRef.current = setTimeout(() => {
           if (!isMountedRef.current || unmountingRef.current || !videoRef.current) return;
           
-          videoRef.current.play().catch(error => {
-            console.error("Error playing video:", error);
-          });
+          try {
+            videoRef.current.play().catch(error => {
+              console.error("Error playing video:", error);
+            });
+          } catch (error) {
+            console.error("Error trying to play video:", error);
+          }
           
           visibilityTimeoutRef.current = null;
         }, 300) as unknown as NodeJS.Timeout;
@@ -206,9 +230,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
 
   // Create stable keys for elements to help React with reconciliation
   // Use a combination of state values that would require a re-render
-  const videoKey = `video-${isCameraActive ? 'camera' : `file-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1)}`}-${isLoaded ? 'loaded' : 'loading'}`;
-  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${isLoaded ? 'loaded' : 'loading'}`;
-  const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
+  const videoKey = `video-${isCameraActive ? 'camera' : `file-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1) || 'default'}`}-${isLoaded ? 'loaded' : 'loading'}-${Date.now()}`;
+  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${isLoaded ? 'loaded' : 'loading'}-${Date.now()}`;
+  const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${Date.now()}`;
+  const mapApiModalKey = `map-api-modal-${showMapApiInput ? 'show' : 'hidden'}-${Date.now()}`;
+  const loadingStateKey = `loading-state-${isLoaded ? 'loaded' : 'loading'}-${error ? 'error' : 'normal'}-${Date.now()}`;
 
   return (
     <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}>
@@ -240,7 +266,10 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       
       {/* Loading/error states */}
       {!isLoaded && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800 text-white">
+        <div
+          key={loadingStateKey} 
+          className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800 text-white"
+        >
           {error ? (
             <>
               <p className="text-lg font-medium text-red-400 mb-2">⚠️ {error}</p>
@@ -260,6 +289,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       {/* Map API key input modal */}
       {showMapApiInput && (
         <MapApiKeyModal
+          key={mapApiModalKey}
           mapApiKey={mapApiKey}
           setMapApiKey={setMapApiKey}
           onSave={handleSaveMapApiKey}
