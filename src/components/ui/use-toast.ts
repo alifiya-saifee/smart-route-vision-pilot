@@ -20,22 +20,15 @@ const safeToast = (props: Parameters<typeof toast>[0]) => {
   }
 };
 
-// Add a function to clear all toasts safely
+// Create a safer version of clearToasts that doesn't rely on hooks outside components
 const clearToasts = () => {
   try {
-    requestAnimationFrame(() => {
-      try {
-        // Get the toast context values directly - don't use getState which doesn't exist
-        const { toasts, dismiss } = useToast();
-        if (toasts && dismiss) {
-          toasts.forEach(t => {
-            if (t.id) dismiss(t.id);
-          });
-        }
-      } catch (error) {
-        console.error("Error clearing toasts:", error);
-      }
-    });
+    // Instead of trying to use hooks outside of components, dispatch a custom event
+    // that components can listen for
+    if (typeof document !== 'undefined') {
+      const clearEvent = new CustomEvent('clear-toasts');
+      document.dispatchEvent(clearEvent);
+    }
   } catch (error) {
     console.error("Error in clearToasts:", error);
   }

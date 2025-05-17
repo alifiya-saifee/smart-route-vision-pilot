@@ -11,16 +11,29 @@ import {
 import { useEffect, useRef } from "react"
 
 export function Toaster() {
-  const { toasts } = useToast()
+  const { toasts, dismiss } = useToast()
   const mountedRef = useRef(true)
   
   // Track component mount state to prevent updates after unmount
   useEffect(() => {
-    mountedRef.current = true
+    mountedRef.current = true;
+    
+    // Listen for clear-toasts events
+    const handleClearToasts = () => {
+      if (mountedRef.current && toasts && dismiss) {
+        toasts.forEach(t => {
+          if (t.id) dismiss(t.id);
+        });
+      }
+    };
+    
+    document.addEventListener('clear-toasts', handleClearToasts);
+    
     return () => {
-      mountedRef.current = false
+      mountedRef.current = false;
+      document.removeEventListener('clear-toasts', handleClearToasts);
     }
-  }, [])
+  }, [toasts, dismiss]);
 
   return (
     <ToastProvider>

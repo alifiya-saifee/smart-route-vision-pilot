@@ -13,10 +13,13 @@ import { clearToasts } from '@/components/ui/use-toast';
 const Index = () => {
   // Clear any stale toasts on mount and unmount
   useEffect(() => {
-    // Clear any existing toasts on component mount
-    clearToasts();
+    // Wait for component to fully mount before clearing toasts
+    const timerId = setTimeout(() => {
+      clearToasts();
+    }, 100);
     
     return () => {
+      clearTimeout(timerId);
       // Clear toasts on unmount to prevent state conflicts
       clearToasts();
     };
