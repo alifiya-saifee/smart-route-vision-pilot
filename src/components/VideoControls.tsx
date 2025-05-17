@@ -148,11 +148,11 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         />
       </div>
       
-      {/* Processing indicator */}
-      {processing && (
+      {/* Processing indicator - show real-time status */}
+      {processing && objectDetectionEnabled && (
         <div className="absolute bottom-4 left-4 bg-black/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
-          <div className="w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse"></div>
-          Processing frame {detectFrameCount}
+          <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+          Real-time detection: frame {detectFrameCount}
         </div>
       )}
       

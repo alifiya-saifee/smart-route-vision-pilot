@@ -21,6 +21,7 @@ export const useObjectDetection = () => {
   const highPriorityDetectionRef = useRef<boolean>(false);
   const requestIdRef = useRef<number | null>(null);
   const emergencyEventDispatched = useRef<boolean>(false);
+  const frameSkipCount = useRef<number>(0);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -51,15 +52,31 @@ export const useObjectDetection = () => {
       frameCount++;
       setDetectFrameCount(frameCount);
       
-      // Process every frame when critical objects are detected, otherwise process every 2nd frame
-      if ((frameCount % (highPriorityDetectionRef.current ? 1 : 2) === 0) && !processing) {
+      // Optimize frame processing by skipping frames when needed
+      // Process every frame regardless of priority for smoother real-time experience
+      if (!processing) {
         setProcessing(true);
         
         // Use the DetectionService to process the current frame
         try {
-          DetectionService.processVideo(videoElement, canvas, handleDetectionResults);
+          DetectionService.processVideo(videoElement, canvas, (results) => {
+            handleDetectionResults(results);
+            // Immediately reset processing flag for better performance
+            setProcessing(false);
+          });
         } catch (error) {
           console.error("Error processing video frame:", error);
+          setProcessing(false);
+        }
+      } else {
+        // If we're still processing the previous frame, increment the skip counter
+        frameSkipCount.current++;
+        
+        // If we've skipped too many frames, force reset the processing state
+        // This prevents getting stuck in processing mode
+        if (frameSkipCount.current > 10) {
+          setProcessing(false);
+          frameSkipCount.current = 0;
         }
       }
       
@@ -77,7 +94,7 @@ export const useObjectDetection = () => {
         requestIdRef.current = null;
       }
     };
-  }, [objectDetectionEnabled, processing]);
+  }, [objectDetectionEnabled]);
 
   // Initialize the detection service when component mounts
   useEffect(() => {
@@ -228,8 +245,9 @@ export const useObjectDetection = () => {
       results.pois = nearbyHospitals;
     }
     
-    // Throttle updates to avoid overwhelming the UI
-    if (now - lastDetectionTime.current > 80) { // More frequent updates for real-time
+    // Update immediately for better performance, just throttle UI updates
+    // Don't block detection processing with UI updates
+    if (now - lastDetectionTime.current > 50) { // More frequent updates for real-time
       lastDetectionTime.current = now;
       
       if (results.objects && Array.isArray(results.objects)) {
@@ -242,9 +260,6 @@ export const useObjectDetection = () => {
         updateLaneOffset(results.lanes);
       }
     }
-    
-    // Reset processing flag immediately for better performance
-    setProcessing(false);
   };
 
   const toggleObjectDetection = () => {

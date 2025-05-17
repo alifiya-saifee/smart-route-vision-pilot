@@ -1,4 +1,3 @@
-
 // This service handles the integration between the React frontend and detection models
 // It simulates the bridge between our React app and models for object and lane detection
 import VoiceAlertService from './VoiceAlertService';
@@ -208,9 +207,12 @@ class DetectionService {
     const context = canvas.getContext('2d');
     if (!context) return;
     
-    // Set canvas dimensions to match video
-    canvas.width = video.videoWidth || video.clientWidth;
-    canvas.height = video.videoHeight || video.clientHeight;
+    // Set canvas dimensions to match video if needed
+    // Only update dimensions when they don't match to avoid performance hit
+    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+      canvas.width = video.videoWidth || video.clientWidth;
+      canvas.height = video.videoHeight || video.clientHeight;
+    }
     
     // Draw the current frame
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -219,35 +221,36 @@ class DetectionService {
     this.frameCount++;
     const now = Date.now();
     
-    // Only generate new results periodically to simulate realistic processing
-    // Reduced interval for more real-time response
-    if (now - this.lastProcessedTime > 40) { // Even faster processing for real-time
-      this.lastProcessedTime = now;
-      
-      // Generate detection results based on video frame
-      let objects = this.generateRealisticObjects(canvas.width, canvas.height);
-      let lanes = this.generateRealisticLanes(canvas.width, canvas.height);
-      let pois = this.getNearbyPOIs();
-      
-      // Check for collision risks
+    // Generate detection results based on video frame
+    // Faster processing interval for real-time experience
+    let objects = this.generateRealisticObjects(canvas.width, canvas.height);
+    let lanes = this.generateRealisticLanes(canvas.width, canvas.height);
+    let pois = this.getNearbyPOIs();
+    
+    // Check for collision risks - only periodically, not every frame
+    if (now - this.lastCollisionCheck > 500) {
       this.checkCollisionRisks(objects, now);
-      
-      // Check for significant detection events that need voice alerts
+      this.lastCollisionCheck = now;
+    }
+    
+    // Check for significant detection events that need voice alerts
+    // Do this less frequently to avoid too much processing
+    if (now - this.lastVoiceAlertTime > 5000) {
       this.handleVoiceAlerts(objects, lanes, pois);
-      
-      // Draw the detection results directly on the canvas
-      this.drawDetectionResultsOnVideo(context, canvas.width, canvas.height, objects, lanes);
-      
-      // Call the callback with the results
-      if (onDetection && typeof onDetection === 'function') {
-        onDetection({
-          objects: objects,
-          lanes: lanes,
-          pois: pois,
-          timestamp: now,
-          emergency: this.emergencyMode
-        });
-      }
+    }
+    
+    // Draw detection results with optimized rendering
+    this.drawDetectionResultsOnVideo(context, canvas.width, canvas.height, objects, lanes);
+    
+    // Call the callback with the results
+    if (onDetection && typeof onDetection === 'function') {
+      onDetection({
+        objects: objects,
+        lanes: lanes,
+        pois: pois,
+        timestamp: now,
+        emergency: this.emergencyMode
+      });
     }
   }
   
@@ -565,15 +568,18 @@ class DetectionService {
    * Optimized for performance in real-time scenarios
    */
   drawDetectionResultsOnVideo(ctx: CanvasRenderingContext2D, width: number, height: number, objects: any[], lanes: any) {
-    // Clear previous overlay with reduced alpha for trail effect
-    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    // Use lighter overlay for better performance
+    ctx.fillStyle = 'rgba(0,0,0,0.05)';
     ctx.fillRect(0, 0, width, height);
     
     // Draw lane markings first (behind objects)
     this.drawLaneOverlay(ctx, width, height, lanes);
     
-    // Then draw the detected objects
-    objects.forEach(obj => this.drawObjectOverlay(ctx, obj));
+    // Optimize object rendering by limiting objects drawn
+    // Draw at most 10 objects to maintain performance
+    const maxObjectsToDraw = 10;
+    const objectsToDraw = objects.slice(0, maxObjectsToDraw);
+    objectsToDraw.forEach(obj => this.drawObjectOverlay(ctx, obj));
     
     // Draw emergency indicator if active
     if (this.emergencyMode) {
