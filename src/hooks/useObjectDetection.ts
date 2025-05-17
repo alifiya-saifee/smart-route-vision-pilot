@@ -1,8 +1,8 @@
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import DetectionService from '@/services/DetectionService';
 import VoiceAlertService from '@/services/VoiceAlertService';
+import { useToast } from '@/components/ui/use-toast';
 
 export const useObjectDetection = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -29,6 +29,10 @@ export const useObjectDetection = () => {
   const co2UpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const componentId = useRef<string>(`object-detection-${Date.now()}`).current;
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingData, setRecordingData] = useState<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const { toast } = useToast();
 
   // Track component mount state - this needs to be the first effect
   useEffect(() => {
@@ -333,6 +337,75 @@ export const useObjectDetection = () => {
     }
   }, [emergencyMode, updateEmergencyStatus]);
 
+  // Start recording function
+  const startRecording = useCallback(() => {
+    if (isRecording || !videoElementRef.current || !isMountedRef.current) return;
+    
+    try {
+      const stream = videoElementRef.current.captureStream();
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+      
+      recorder.onstop = () => {
+        if (!isMountedRef.current) return;
+        
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        
+        // Save the recorded video
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `proximity-recording-${new Date().toISOString()}.webm`;
+        a.click();
+        
+        URL.revokeObjectURL(url);
+        
+        if (isMountedRef.current) {
+          toast({
+            title: "Recording saved",
+            description: "Proximity recording has been saved"
+          });
+          
+          console.log('✅ Proximity recording stopped and saved');
+          setRecordingData([]);
+        }
+      };
+      
+      recorder.start(1000); // Collect data every second
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      
+      toast({
+        title: "Recording started",
+        description: "Proximity detection triggered recording"
+      });
+      
+      console.log('⏺️ Proximity recording started');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      setIsRecording(false);
+    }
+  }, [isRecording, toast]);
+
+  // Stop recording function
+  const stopRecording = useCallback(() => {
+    if (!isRecording || !mediaRecorderRef.current || !isMountedRef.current) return;
+    
+    try {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+    }
+  }, [isRecording]);
+
   // Handle detection results with improved performance
   const handleDetectionResults = useCallback((results: any) => {
     if (!isMountedRef.current) return;
@@ -350,6 +423,40 @@ export const useObjectDetection = () => {
     highPriorityDetectionRef.current = filteredObjects.some((obj: any) => 
       ['person', 'pedestrian', 'traffic light', 'stop sign'].includes(obj.type.toLowerCase())
     );
+    
+    // Check for proximity to start/stop recording (10cm is too small, using 5m for demo)
+    const proximityThresholdInMeters = 5;
+    const nearbyVehicles = filteredObjects.filter((obj: any) => 
+      ['car', 'truck', 'bus'].includes(obj.type.toLowerCase()) && 
+      obj.distance && 
+      obj.distance <= proximityThresholdInMeters
+    );
+    
+    // Start recording if close to vehicle and not already recording
+    if (nearbyVehicles.length > 0 && !isRecording) {
+      startRecording();
+    } 
+    // Stop recording if no longer close to any vehicle
+    else if (nearbyVehicles.length === 0 && isRecording) {
+      // Add a small delay to avoid stopping/starting repeatedly
+      setTimeout(() => {
+        if (!isMountedRef.current) return;
+        
+        // Check again to make sure we're still not close
+        const currentResults = detectionResultsRef.current;
+        if (!currentResults) return;
+        
+        const stillNearby = currentResults.objects.some((obj: any) => 
+          ['car', 'truck', 'bus'].includes(obj.type.toLowerCase()) && 
+          obj.distance && 
+          obj.distance <= proximityThresholdInMeters
+        );
+        
+        if (!stillNearby) {
+          stopRecording();
+        }
+      }, 3000);
+    }
     
     // In emergency mode, add nearby hospitals to the detection results
     if (emergencyMode) {
@@ -393,7 +500,7 @@ export const useObjectDetection = () => {
         }
       });
     }
-  }, [confidenceThreshold, emergencyMode, updateDetectedObjects, updateLaneOffset]);
+  }, [confidenceThreshold, emergencyMode, updateDetectedObjects, updateLaneOffset, isRecording, startRecording, stopRecording]);
 
   const toggleObjectDetection = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -434,6 +541,7 @@ export const useObjectDetection = () => {
     confidenceThreshold,
     setConfidenceThreshold,
     toggleObjectDetection,
-    triggerEmergencyMode
+    triggerEmergencyMode,
+    isRecording
   };
 };

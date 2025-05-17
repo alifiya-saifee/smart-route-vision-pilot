@@ -2,12 +2,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 
-// Mock video URL - this would normally be a real video stream or webcam feed
-const MOCK_VIDEO_URL = "https://static.videezy.com/system/resources/previews/000/037/754/original/main.mp4";
+// Updated video sources that are more likely to work in modern browsers
+const MOCK_VIDEO_URL = "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
 // Alternative road videos if the primary one fails
 const FALLBACK_VIDEOS = [
-  "https://static.videezy.com/system/resources/previews/000/007/368/original/Highway_Forward_Dashboard.mp4",
-  "https://static.videezy.com/system/resources/previews/000/050/684/original/5.mp4"
+  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"
 ];
 
 export const useVideoProcessing = () => {
