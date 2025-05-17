@@ -26,6 +26,7 @@ export interface RouteInstruction {
 export interface DetectedObject {
   type: string;
   count: number;
+  confidence?: number; // Added confidence as an optional property
 }
 
 export interface LaneOffset {
