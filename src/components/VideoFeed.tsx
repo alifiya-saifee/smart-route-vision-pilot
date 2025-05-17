@@ -47,7 +47,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const visibilityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mapApiKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const mountCounterRef = useRef<number>(0);
 
+  // Generate stable component keys
+  const componentId = useRef<string>(`video-feed-${Date.now()}`).current;
+  
   // Handle saving the map API key with debounce
   const handleSaveMapApiKey = useCallback(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
@@ -55,6 +59,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     // Clear any existing timeouts first
     if (mapApiKeyTimeoutRef.current) {
       clearTimeout(mapApiKeyTimeoutRef.current);
+      mapApiKeyTimeoutRef.current = null;
     }
     
     // Save after a short delay to prevent multiple saves
@@ -74,6 +79,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   useEffect(() => {
     isMountedRef.current = true;
     unmountingRef.current = false;
+    mountCounterRef.current++;
     
     return () => {
       // Signal component is unmounting
@@ -108,38 +114,26 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     setIsUpdatingVideo(true);
     pendingOperationRef.current = true;
     
-    // Use Promise-based approach for better control flow
-    Promise.resolve().then(() => {
-      if (!isMountedRef.current || unmountingRef.current) return Promise.reject('Component unmounted');
+    // Add a small delay before the operation to ensure any pending React updates are processed
+    safeOperationTimeoutRef.current = setTimeout(async () => {
+      if (!isMountedRef.current || unmountingRef.current) return;
       
-      // Call the actual toggle function
-      toggleCameraStream();
-      
-      // Return a promise that resolves after a delay
-      return new Promise<void>(resolve => {
-        if (safeOperationTimeoutRef.current) {
-          clearTimeout(safeOperationTimeoutRef.current);
-        }
-        
-        safeOperationTimeoutRef.current = setTimeout(() => {
-          resolve();
-        }, 800) as unknown as NodeJS.Timeout;
-      });
-    }).then(() => {
-      if (isMountedRef.current && !unmountingRef.current) {
-        setIsUpdatingVideo(false);
-        pendingOperationRef.current = false;
+      try {
+        // Call the actual toggle function
+        await toggleCameraStream();
+      } catch (error) {
+        console.error("Error in camera toggle:", error);
+      } finally {
+        // Use RAF to ensure we're in a stable rendering cycle
+        requestAnimationFrame(() => {
+          if (!isMountedRef.current || unmountingRef.current) return;
+          
+          // Reset state after operation completes
+          setIsUpdatingVideo(false);
+          pendingOperationRef.current = false;
+        });
       }
-    }).catch(error => {
-      if (error !== 'Component unmounted') {
-        console.error("Error toggling camera:", error);
-      }
-      // Reset state on error
-      if (isMountedRef.current && !unmountingRef.current) {
-        setIsUpdatingVideo(false);
-        pendingOperationRef.current = false;
-      }
-    });
+    }, 10) as unknown as NodeJS.Timeout;
   }, [toggleCameraStream, isUpdatingVideo]);
 
   // Safe file upload with improved safety and error handling
@@ -150,38 +144,25 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     setIsUpdatingVideo(true);
     pendingOperationRef.current = true;
     
-    // Use Promise-based approach
-    Promise.resolve().then(() => {
-      if (!isMountedRef.current || unmountingRef.current) return Promise.reject('Component unmounted');
+    safeOperationTimeoutRef.current = setTimeout(() => {
+      if (!isMountedRef.current || unmountingRef.current) return;
       
-      // Handle the file upload
-      handleFileUpload(file);
-      
-      // Return a promise that resolves after a delay
-      return new Promise<void>(resolve => {
-        if (safeOperationTimeoutRef.current) {
-          clearTimeout(safeOperationTimeoutRef.current);
-        }
-        
-        safeOperationTimeoutRef.current = setTimeout(() => {
-          resolve();
-        }, 800) as unknown as NodeJS.Timeout;
-      });
-    }).then(() => {
-      if (isMountedRef.current && !unmountingRef.current) {
-        setIsUpdatingVideo(false);
-        pendingOperationRef.current = false;
-      }
-    }).catch(error => {
-      if (error !== 'Component unmounted') {
+      try {
+        // Handle the file upload
+        handleFileUpload(file);
+      } catch (error) {
         console.error("Error handling file upload:", error);
+      } finally {
+        // Use RAF to ensure we're in a stable rendering cycle
+        requestAnimationFrame(() => {
+          if (!isMountedRef.current || unmountingRef.current) return;
+          
+          // Reset state after operation completes
+          setIsUpdatingVideo(false);
+          pendingOperationRef.current = false;
+        });
       }
-      // Reset state on error
-      if (isMountedRef.current && !unmountingRef.current) {
-        setIsUpdatingVideo(false);
-        pendingOperationRef.current = false;
-      }
-    });
+    }, 10) as unknown as NodeJS.Timeout;
   }, [handleFileUpload, isUpdatingVideo]);
 
   // Handle visibility changes safely with improved cleanup
@@ -229,19 +210,17 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     };
   }, [videoRef, isCameraActive]);
 
-  // Stop using time-based keys which can cause reconciliation issues
-  // Instead use stable keys based on state transitions
-  const videoKey = `video-${isCameraActive ? 'camera' : 'file'}-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1) || 'default'}`;
-  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${isLoaded ? 'loaded' : 'loading'}`;
-  const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
-  const mapApiModalKey = `map-api-modal-${showMapApiInput ? 'show' : 'hidden'}`;
-  const loadingStateKey = `loading-state-${isLoaded ? 'loaded' : 'loading'}-${error ? 'error' : 'normal'}`;
+  // Use stable keys for all components based on props and state
+  const videoKey = `video-${componentId}-${isCameraActive ? 'camera' : 'file'}-${mountCounterRef.current}`;
+  const canvasKey = `canvas-${componentId}-${objectDetectionEnabled ? 'detection' : 'normal'}-${mountCounterRef.current}`;
+  const controlsKey = `controls-${componentId}-${objectDetectionEnabled ? 'detection' : 'normal'}-${mountCounterRef.current}`;
+  const mapModalKey = `map-api-modal-${componentId}-${showMapApiInput ? 'show' : 'hidden'}-${mountCounterRef.current}`;
 
   return (
     <div 
       ref={videoContainerRef}
       className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}
-      key="video-feed-container"
+      key={`video-feed-container-${componentId}`}
     >
       {/* Video element with stable key */}
       {videoRef && (
@@ -260,7 +239,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       {/* Canvas overlay with stable key */}
       {videoRef && canvasRef && isLoaded && (
         <VideoCanvas 
-          key={videoCanvasKey}
+          key={canvasKey}
           canvasRef={canvasRef}
           videoRef={videoRef} 
           objectDetectionEnabled={objectDetectionEnabled}
@@ -272,7 +251,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       {/* Loading/error states */}
       {!isLoaded && (
         <div
-          key={loadingStateKey} 
+          key={`loading-state-${componentId}-${error ? 'error' : 'loading'}`}
           className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800 text-white"
         >
           {error ? (
@@ -294,7 +273,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       {/* Map API key input modal - Only render when needed */}
       {showMapApiInput && (
         <MapApiKeyModal
-          key={mapApiModalKey}
+          key={mapModalKey}
           mapApiKey={mapApiKey}
           setMapApiKey={setMapApiKey}
           onSave={handleSaveMapApiKey}
@@ -304,7 +283,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
 
       {/* Video controls with stable key */}
       <VideoControls
-        key={videoControlsKey}
+        key={controlsKey}
         onFileUpload={safeHandleFileUpload}
         objectDetectionEnabled={objectDetectionEnabled}
         toggleObjectDetection={toggleObjectDetection}

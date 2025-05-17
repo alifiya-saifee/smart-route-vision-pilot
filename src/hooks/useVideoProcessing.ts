@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 
 // Mock video URL - this would normally be a real video stream or webcam feed
@@ -19,21 +19,35 @@ export const useVideoProcessing = () => {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
   const videoErrorCount = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
+  
+  // Track component mount state
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || !isMountedRef.current) return;
     
     const videoElement = videoRef.current;
+    let canPlayHandler: ((e: Event) => void) | null = null;
+    let errorHandler: ((e: Event) => void) | null = null;
     
     // Handle successful loading
-    const handleCanPlay = () => {
+    canPlayHandler = (e: Event) => {
+      if (!isMountedRef.current) return;
       setIsLoaded(true);
       setError(null);
       console.log("Video can play now");
     };
     
     // Handle errors
-    const handleError = (e: Event) => {
+    errorHandler = (e: Event) => {
+      if (!isMountedRef.current) return;
+      
       console.error("Video error:", e);
       
       // Skip fallback logic if using camera
@@ -57,44 +71,56 @@ export const useVideoProcessing = () => {
     };
     
     // Register event listeners
-    videoElement.addEventListener('canplay', handleCanPlay);
-    videoElement.addEventListener('error', handleError);
+    videoElement.addEventListener('canplay', canPlayHandler);
+    videoElement.addEventListener('error', errorHandler);
     
     // Start playing the video if not using camera
     if (!isCameraActive) {
       videoElement.play().catch(err => {
+        if (!isMountedRef.current) return;
         console.error("Video playback error:", err);
-        handleError(new Event('error'));
+        if (errorHandler) errorHandler(new Event('error'));
       });
     }
     
     // Clean up event listeners
     return () => {
-      videoElement.removeEventListener('canplay', handleCanPlay);
-      videoElement.removeEventListener('error', handleError);
+      if (videoElement) {
+        if (canPlayHandler) videoElement.removeEventListener('canplay', canPlayHandler);
+        if (errorHandler) videoElement.removeEventListener('error', errorHandler);
+      }
+      
+      // Set handlers to null to avoid potential memory leaks
+      canPlayHandler = null;
+      errorHandler = null;
     };
   }, [videoSrc, isCameraActive]);
 
-  // Function to toggle camera stream
-  const toggleCameraStream = async () => {
+  // Function to toggle camera stream with safety checks
+  const toggleCameraStream = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       if (isCameraActive && cameraStreamRef.current) {
         // Stop all tracks in the stream
         cameraStreamRef.current.getTracks().forEach(track => track.stop());
         cameraStreamRef.current = null;
-        setIsCameraActive(false);
         
-        // Reset video source
-        if (videoRef.current) {
-          videoRef.current.srcObject = null;
-          videoRef.current.src = videoSrc;
-          videoRef.current.play().catch(err => console.error("Error playing video after camera stop:", err));
+        if (isMountedRef.current) {
+          setIsCameraActive(false);
+          
+          // Reset video source
+          if (videoRef.current) {
+            videoRef.current.srcObject = null;
+            videoRef.current.src = videoSrc;
+            videoRef.current.play().catch(err => console.error("Error playing video after camera stop:", err));
+          }
+          
+          toast({
+            title: "Camera stopped",
+            description: "Switched back to video simulation"
+          });
         }
-        
-        toast({
-          title: "Camera stopped",
-          description: "Switched back to video simulation"
-        });
         return;
       }
 
@@ -106,6 +132,12 @@ export const useVideoProcessing = () => {
           height: { ideal: 720 }
         } 
       });
+      
+      if (!isMountedRef.current) {
+        // Clean up stream if component unmounted during async operation
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       
       // Save reference to the stream
       cameraStreamRef.current = stream;
@@ -125,6 +157,8 @@ export const useVideoProcessing = () => {
         description: "Using device camera for real-time detection"
       });
     } catch (err) {
+      if (!isMountedRef.current) return;
+      
       console.error("Error accessing camera:", err);
       setError("Could not access camera. Please check permissions.");
       setIsCameraActive(false);
@@ -135,9 +169,11 @@ export const useVideoProcessing = () => {
         variant: "destructive"
       });
     }
-  };
+  }, [videoSrc, isCameraActive, toast]);
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = useCallback((file: File) => {
+    if (!isMountedRef.current) return;
+    
     // Stop camera if active
     if (isCameraActive && cameraStreamRef.current) {
       cameraStreamRef.current.getTracks().forEach(track => track.stop());
@@ -166,20 +202,27 @@ export const useVideoProcessing = () => {
     setIsLoaded(false);
     setError(null);
     videoErrorCount.current = 0;
+    
     toast({
       title: "Video uploaded",
       description: `Now playing: ${file.name}`,
     });
-  };
+  }, [isCameraActive, toast]);
 
   // Clean up on unmount
   useEffect(() => {
     return () => {
       if (cameraStreamRef.current) {
         cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        cameraStreamRef.current = null;
+      }
+      
+      // Release any object URLs to prevent memory leaks
+      if (videoSrc.startsWith('blob:') && isMountedRef.current) {
+        URL.revokeObjectURL(videoSrc);
       }
     };
-  }, []);
+  }, [videoSrc]);
 
   return {
     videoRef,

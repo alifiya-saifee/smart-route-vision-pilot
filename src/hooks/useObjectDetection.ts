@@ -28,22 +28,32 @@ export const useObjectDetection = () => {
   const resetEmergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const co2UpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const componentId = useRef<string>(`object-detection-${Date.now()}`).current;
 
   // Track component mount state - this needs to be the first effect
   useEffect(() => {
     isMountedRef.current = true;
+    
     return () => {
       // First set the flag to prevent any further operations
       isMountedRef.current = false;
       
       // Explicitly cancel animations before clearing references
       if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
+        try {
+          cancelAnimationFrame(requestIdRef.current);
+        } catch (e) {
+          console.error("Error cancelling animation frame:", e);
+        }
         requestIdRef.current = null;
       }
       
       if (processingTimerRef.current) {
-        cancelAnimationFrame(processingTimerRef.current);
+        try {
+          cancelAnimationFrame(processingTimerRef.current);
+        } catch (e) {
+          console.error("Error cancelling processing timer:", e);
+        }
         processingTimerRef.current = null;
       }
       
@@ -62,15 +72,22 @@ export const useObjectDetection = () => {
         clearInterval(co2UpdateIntervalRef.current);
         co2UpdateIntervalRef.current = null;
       }
+      
+      // Clear video element reference
+      videoElementRef.current = null;
     };
   }, []);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
+    // Early return if detection disabled, component unmounted, or no canvas
     if (!objectDetectionEnabled || !canvasRef.current || !isMountedRef.current) {
-      // If detection is disabled or component unmounted, clear any existing processing
       if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
+        try {
+          cancelAnimationFrame(requestIdRef.current);
+        } catch (e) {
+          console.error("Error cancelling animation frame:", e);
+        }
         requestIdRef.current = null;
       }
       return;
@@ -93,14 +110,23 @@ export const useObjectDetection = () => {
       if (!isMountedRef.current) {
         // If component unmounted, cancel animation frame
         if (requestIdRef.current) {
-          cancelAnimationFrame(requestIdRef.current);
+          try {
+            cancelAnimationFrame(requestIdRef.current);
+          } catch (e) {
+            console.error("Error cancelling animation frame:", e);
+          }
           requestIdRef.current = null;
         }
         return;
       }
       
       frameCount++;
-      setDetectFrameCount(frameCount);
+      
+      // Use requestAnimationFrame for state updates to prevent batching issues
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
+        setDetectFrameCount(frameCount);
+      });
       
       // Process frame if not already processing
       if (!processing && isMountedRef.current && videoElementRef.current) {
@@ -134,7 +160,11 @@ export const useObjectDetection = () => {
       
       // Only continue the animation loop if component is still mounted
       if (isMountedRef.current) {
-        requestIdRef.current = requestAnimationFrame(processVideoFrame);
+        try {
+          requestIdRef.current = requestAnimationFrame(processVideoFrame);
+        } catch (e) {
+          console.error("Error requesting animation frame:", e);
+        }
       }
     };
     
@@ -142,49 +172,67 @@ export const useObjectDetection = () => {
     if (isMountedRef.current) {
       // Always cancel any existing animation frame before starting a new one
       if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
+        try {
+          cancelAnimationFrame(requestIdRef.current);
+        } catch (e) {
+          console.error("Error cancelling animation frame:", e);
+        }
         requestIdRef.current = null;
       }
-      requestIdRef.current = requestAnimationFrame(processVideoFrame);
+      
+      try {
+        requestIdRef.current = requestAnimationFrame(processVideoFrame);
+      } catch (e) {
+        console.error("Error requesting initial animation frame:", e);
+      }
     }
     
     // Clean up when disabled or unmounted
     return () => {
       if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
+        try {
+          cancelAnimationFrame(requestIdRef.current);
+        } catch (e) {
+          console.error("Error cancelling animation frame in cleanup:", e);
+        }
         requestIdRef.current = null;
       }
     };
-  }, [objectDetectionEnabled]);
+  }, [objectDetectionEnabled, processing]);
 
-  // Initialize the detection service when component mounts
-  useEffect(() => {
+  // Initialize the detection service when component mounts - using useCallback for stability
+  const initializeDetection = useCallback(async () => {
     if (!isMountedRef.current) return;
     
-    const initializeDetection = async () => {
-      try {
-        const status = await DetectionService.initialize();
-        console.log("Detection services initialized:", status);
+    try {
+      const status = await DetectionService.initialize();
+      console.log("Detection services initialized:", status);
+      
+      // Initialize voice synthesis if available
+      if ('speechSynthesis' in window) {
+        // Pre-load voices
+        window.speechSynthesis.getVoices();
         
-        // Initialize voice synthesis if available
-        if ('speechSynthesis' in window) {
-          // Pre-load voices
-          window.speechSynthesis.getVoices();
-          
-          // Announce ready status (only when first initialized)
-          if (isMountedRef.current) {
-            setTimeout(() => {
+        // Announce ready status (only when first initialized)
+        if (isMountedRef.current) {
+          setTimeout(() => {
+            if (isMountedRef.current) {
               VoiceAlertService.speak("Detection system ready", "general", 1);
-            }, 1000);
-          }
+            }
+          }, 1000);
         }
-      } catch (err) {
-        console.error("Failed to initialize detection:", err);
       }
-    };
-    
-    initializeDetection();
+    } catch (err) {
+      console.error("Failed to initialize detection:", err);
+    }
   }, []);
+
+  // Call initialization on mount
+  useEffect(() => {
+    if (isMountedRef.current) {
+      initializeDetection();
+    }
+  }, [initializeDetection]);
 
   // Setup CO2 updating at regular intervals with proper cleanup
   useEffect(() => {
@@ -198,11 +246,13 @@ export const useObjectDetection = () => {
     
     if (objectDetectionEnabled) {
       // Fix: Cast the return value to NodeJS.Timeout
-      co2UpdateIntervalRef.current = setInterval(() => {
+      const handler = () => {
         if (isMountedRef.current) {
           updateCO2Savings();
         }
-      }, 2000) as unknown as NodeJS.Timeout;
+      };
+      
+      co2UpdateIntervalRef.current = setInterval(handler, 2000) as unknown as NodeJS.Timeout;
     }
 
     return () => {
@@ -328,15 +378,20 @@ export const useObjectDetection = () => {
     if (now - lastDetectionTime.current > 50 && isMountedRef.current) { // More frequent updates for real-time
       lastDetectionTime.current = now;
       
-      if (filteredObjects && Array.isArray(filteredObjects)) {
-        // Update detected objects in navigation context
-        updateDetectedObjects(filteredObjects);
-      }
-      
-      if (results.lanes) {
-        // Update lane offset in navigation context
-        updateLaneOffset(results.lanes);
-      }
+      // Use requestAnimationFrame for updates to ensure they happen in a rendering cycle
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
+        
+        if (filteredObjects && Array.isArray(filteredObjects)) {
+          // Update detected objects in navigation context
+          updateDetectedObjects(filteredObjects);
+        }
+        
+        if (results.lanes) {
+          // Update lane offset in navigation context
+          updateLaneOffset(results.lanes);
+        }
+      });
     }
   }, [confidenceThreshold, emergencyMode, updateDetectedObjects, updateLaneOffset]);
 
