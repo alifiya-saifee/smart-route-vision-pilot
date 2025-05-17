@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import DetectionService from '@/services/DetectionService';
@@ -24,9 +23,9 @@ export const useObjectDetection = () => {
   const emergencyEventDispatched = useRef<boolean>(false);
   const frameSkipCount = useRef<number>(0);
   const isMountedRef = useRef<boolean>(true);
-  const emergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const resetEmergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const co2UpdateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const emergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resetEmergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const co2UpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track component mount state - this needs to be the first effect
   useEffect(() => {
@@ -190,11 +189,12 @@ export const useObjectDetection = () => {
     }
     
     if (objectDetectionEnabled) {
-      co2UpdateIntervalRef.current = window.setInterval(() => {
+      // Fix: Cast the return value to NodeJS.Timeout
+      co2UpdateIntervalRef.current = setInterval(() => {
         if (isMountedRef.current) {
           updateCO2Savings();
         }
-      }, 2000);
+      }, 2000) as unknown as NodeJS.Timeout;
     }
 
     return () => {
@@ -247,6 +247,7 @@ export const useObjectDetection = () => {
         VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
         
         // End emergency mode after some time with safety checks
+        // Fix: Cast the return value to NodeJS.Timeout
         emergencyTimeoutRef.current = setTimeout(() => {
           if (!isMountedRef.current) return;
           
@@ -263,12 +264,13 @@ export const useObjectDetection = () => {
           VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
           
           // Reset flag after emergency is complete
+          // Fix: Cast the return value to NodeJS.Timeout
           resetEmergencyTimeoutRef.current = setTimeout(() => {
             if (isMountedRef.current) {
               emergencyEventDispatched.current = false;
             }
-          }, 1000);
-        }, 20000);
+          }, 1000) as unknown as NodeJS.Timeout;
+        }, 20000) as unknown as NodeJS.Timeout;
       }, 300);
     }
   };
