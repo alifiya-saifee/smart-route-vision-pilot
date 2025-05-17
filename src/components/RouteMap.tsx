@@ -4,6 +4,7 @@ import { useNavigation } from '@/context/NavigationContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
+import { MapPin } from 'lucide-react';
 
 interface RouteMapProps {
   className?: string;
@@ -18,6 +19,7 @@ const RouteMap: React.FC<RouteMapProps> = ({ className }) => {
   });
   const [showApiInput, setShowApiInput] = useState<boolean>(!localStorage.getItem('mapApiKey'));
   const { toast } = useToast();
+  const [mapError, setMapError] = useState<string | null>(null);
   
   const handleSaveApiKey = () => {
     if (apiKey.trim()) {
@@ -39,12 +41,17 @@ const RouteMap: React.FC<RouteMapProps> = ({ className }) => {
 
   const loadMap = () => {
     const key = localStorage.getItem('mapApiKey');
-    if (!key || !mapContainerRef.current || !route) return;
+    if (!key || !mapContainerRef.current || !route) {
+      if (mapContainerRef.current && !route) {
+        mapContainerRef.current.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">Set a route to display the map</div>';
+      }
+      return;
+    }
     
-    // Clear previous map
-    mapContainerRef.current.innerHTML = '';
+    // Clear previous map and error state
+    setMapError(null);
+    mapContainerRef.current.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">Loading map...</div>';
     
-    // Create map image URL
     try {
       const startLat = route.start.lat;
       const startLon = route.start.lon;
@@ -60,19 +67,41 @@ const RouteMap: React.FC<RouteMapProps> = ({ className }) => {
       img.alt = 'Route Map';
       img.className = 'w-full h-full object-cover rounded-lg';
       
-      // Add image to container
-      mapContainerRef.current.appendChild(img);
+      // Handle image load error
+      img.onerror = () => {
+        setMapError("Failed to load map. Please check your API key.");
+        if (mapContainerRef.current) {
+          mapContainerRef.current.innerHTML = '<div class="flex items-center justify-center h-full text-red-400">Failed to load map. Please check your API key.</div>';
+        }
+      };
+      
+      // Handle successful image load
+      img.onload = () => {
+        if (mapContainerRef.current) {
+          mapContainerRef.current.innerHTML = '';
+          mapContainerRef.current.appendChild(img);
+        }
+      };
     } catch (error) {
       console.error('Error loading map:', error);
-      mapContainerRef.current.innerHTML = '<div class="flex items-center justify-center h-full text-red-400">Error loading map</div>';
+      setMapError("Error loading map");
+      if (mapContainerRef.current) {
+        mapContainerRef.current.innerHTML = '<div class="flex items-center justify-center h-full text-red-400">Error loading map</div>';
+      }
     }
   };
 
+  // Load map when route changes or API key is set
   useEffect(() => {
-    if (route && localStorage.getItem('mapApiKey')) {
+    if (localStorage.getItem('mapApiKey')) {
       loadMap();
     }
   }, [route]);
+
+  // Handle API key changes
+  const openApiKeyInput = () => {
+    setShowApiInput(true);
+  };
 
   return (
     <div className={`h-full ${className || ''}`}>
@@ -94,17 +123,26 @@ const RouteMap: React.FC<RouteMapProps> = ({ className }) => {
         </div>
       ) : (
         <div className="h-full">
-          {route ? (
-            <div ref={mapContainerRef} className="w-full h-full bg-gray-700 rounded-lg overflow-hidden">
-              <div className="flex items-center justify-center h-full text-gray-400">
-                Loading map...
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full bg-gray-800 rounded-lg">
-              <p className="text-gray-400">Set a route to display the map</p>
+          {mapError && (
+            <div className="absolute top-2 right-2 z-10">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={openApiKeyInput}
+                className="bg-gray-800 hover:bg-gray-700 text-white border-gray-700"
+              >
+                Update API Key
+              </Button>
             </div>
           )}
+          <div ref={mapContainerRef} className="w-full h-full bg-gray-700 rounded-lg overflow-hidden flex items-center justify-center">
+            {!route && (
+              <div className="flex items-center justify-center flex-col text-gray-400">
+                <MapPin className="h-8 w-8 mb-2 text-gray-500" />
+                <p>Set a route to display the map</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
