@@ -1,5 +1,4 @@
-
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Upload, Camera, CameraOff, Hospital, BarChart2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
