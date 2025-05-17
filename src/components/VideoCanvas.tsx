@@ -26,6 +26,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [timeDisplay, setTimeDisplay] = useState<string>('');
   const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]);
   const emergencyEventHandled = useRef<boolean>(false);
+  const isComponentMounted = useRef<boolean>(true);
   
   // Initialize canvas size when video dimensions are available
   useEffect(() => {
@@ -49,6 +50,15 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     return () => clearInterval(timeInterval);
   }, []);
   
+  // Track component mount state
+  useEffect(() => {
+    isComponentMounted.current = true;
+    
+    return () => {
+      isComponentMounted.current = false;
+    };
+  }, []);
+  
   // Set up FPS counter and emergency mode handling
   useEffect(() => {
     if (!objectDetectionEnabled) {
@@ -59,6 +69,8 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     }
     
     const calculateFps = () => {
+      if (!isComponentMounted.current) return;
+      
       frameCountRef.current++;
       const now = Date.now();
       
@@ -78,12 +90,18 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         lastFpsUpdateRef.current = now;
       }
       
-      // Request next frame
-      requestAnimationFrame(calculateFps);
+      // Only request next frame if component is still mounted
+      if (isComponentMounted.current) {
+        requestAnimationFrame(calculateFps);
+      }
     };
     
     // Start FPS calculation
-    const animationId = requestAnimationFrame(calculateFps);
+    let animationId: number | null = null;
+    
+    if (isComponentMounted.current) {
+      animationId = requestAnimationFrame(calculateFps);
+    }
     
     // Handle emergency event detection
     const handleEmergencyEvent = (e: Event) => {
@@ -94,8 +112,13 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       const customEvent = e as CustomEvent;
       console.log('Emergency detected, starting recording', customEvent.detail);
       
-      // Use setTimeout to avoid immediate state updates that could conflict with rendering
-      setTimeout(() => {
+      // Ensure component is still mounted before updating state
+      if (!isComponentMounted.current) return;
+      
+      // Use RAF to ensure state updates happen in proper animation frame
+      requestAnimationFrame(() => {
+        if (!isComponentMounted.current) return;
+        
         setIsRecording(true);
         setEmergencyActive(true);
         
@@ -105,21 +128,32 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
           { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
         ]);
         
-        // Simulate emergency data gathering
-        setTimeout(() => {
-          // In a real implementation this would continue recording until the emergency is over
+        // Simulate emergency data gathering with safety checks
+        const emergencyTimeout = setTimeout(() => {
+          if (!isComponentMounted.current) return;
+          
           setEmergencyActive(false);
           // Keep recording for a few more seconds
-          setTimeout(() => {
+          const recordingTimeout = setTimeout(() => {
+            if (!isComponentMounted.current) return;
+            
             setIsRecording(false);
             // Keep showing hospitals for a bit longer
-            setTimeout(() => {
+            const hospitalsTimeout = setTimeout(() => {
+              if (!isComponentMounted.current) return;
+              
               setNearbyHospitals([]);
               emergencyEventHandled.current = false; // Reset for future events
             }, 5000);
+            
+            return () => clearTimeout(hospitalsTimeout);
           }, 10000);
+          
+          return () => clearTimeout(recordingTimeout);
         }, 5000);
-      }, 100);
+        
+        return () => clearTimeout(emergencyTimeout);
+      });
     };
     
     // Add the event listener
@@ -127,8 +161,11 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     
     // Cleanup
     return () => {
-      cancelAnimationFrame(animationId);
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
       window.removeEventListener('emergency-detected', handleEmergencyEvent);
+      isComponentMounted.current = false;
     };
   }, [objectDetectionEnabled, isRecording]);
 
@@ -163,6 +200,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
             <button 
               onClick={onToggleCamera}
               className="bg-blue-500/50 hover:bg-blue-600/70 rounded-full p-1"
+              type="button"
             >
               {isCameraActive ? <CameraOff className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
             </button>

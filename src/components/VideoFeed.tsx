@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
 import { useObjectDetection } from '@/hooks/useObjectDetection';
@@ -27,7 +28,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     detectFrameCount,
     processing,
     toggleObjectDetection,
-    triggerEmergencyMode
+    triggerEmergencyMode,
+    confidenceThreshold,
+    setConfidenceThreshold
   } = useObjectDetection();
   
   const [mapApiKey, setMapApiKey] = useState<string>(() => {
@@ -37,6 +40,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const [showMapApiInput, setShowMapApiInput] = useState<boolean>(!localStorage.getItem('mapApiKey'));
   const { toast } = useToast();
   const [isUpdatingVideo, setIsUpdatingVideo] = useState(false);
+  const isMountedRef = useRef<boolean>(true);
 
   const handleSaveMapApiKey = useCallback(() => {
     localStorage.setItem('mapApiKey', mapApiKey);
@@ -47,50 +51,84 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     });
   }, [mapApiKey, toast]);
 
+  // Track component mount state
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Safe camera toggle that prevents race conditions
   const safeToggleCameraStream = useCallback(() => {
+    if (!isMountedRef.current) return;
+    
     // Set updating flag to prevent multiple toggles
     setIsUpdatingVideo(true);
     
     // Delay toggle to ensure React has finished rendering
-    setTimeout(() => {
+    const toggleTimeout = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      
       toggleCameraStream();
       
       // Reset updating flag after a delay
-      setTimeout(() => {
-        setIsUpdatingVideo(false);
+      const resetTimeout = setTimeout(() => {
+        if (isMountedRef.current) {
+          setIsUpdatingVideo(false);
+        }
       }, 500);
+      
+      return () => clearTimeout(resetTimeout);
     }, 50);
+    
+    return () => clearTimeout(toggleTimeout);
   }, [toggleCameraStream]);
 
   // Safe file upload that prevents race conditions
   const safeHandleFileUpload = useCallback((file: File) => {
+    if (!isMountedRef.current) return;
+    
     // Set updating flag to prevent multiple uploads
     setIsUpdatingVideo(true);
     
     // Delay upload to ensure React has finished rendering
-    setTimeout(() => {
+    const uploadTimeout = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      
       handleFileUpload(file);
       
       // Reset updating flag after a delay
-      setTimeout(() => {
-        setIsUpdatingVideo(false);
+      const resetTimeout = setTimeout(() => {
+        if (isMountedRef.current) {
+          setIsUpdatingVideo(false);
+        }
       }, 500);
+      
+      return () => clearTimeout(resetTimeout);
     }, 50);
+    
+    return () => clearTimeout(uploadTimeout);
   }, [handleFileUpload]);
 
   // Ensure video keeps playing when tab regains focus with error handling
   useEffect(() => {
     const handleVisibilityChange = () => {
+      if (!isMountedRef.current) return;
+      
       if (document.visibilityState === 'visible' && videoRef.current && !isCameraActive) {
         // Add a slight delay before attempting to play to ensure DOM is ready
-        setTimeout(() => {
+        const playTimeout = setTimeout(() => {
+          if (!isMountedRef.current) return;
+          
           if (videoRef.current) {
             videoRef.current.play().catch(error => {
               console.error("Error playing video:", error);
             });
           }
         }, 100);
+        
+        return () => clearTimeout(playTimeout);
       }
     };
 
@@ -100,6 +138,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
+      isMountedRef.current = false;
     };
   }, [videoRef, isCameraActive]);
 
@@ -166,6 +205,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         toggleCameraStream={!isUpdatingVideo ? safeToggleCameraStream : undefined}
         isCameraActive={isCameraActive}
         triggerEmergency={triggerEmergencyMode}
+        confidenceThreshold={confidenceThreshold}
+        setConfidenceThreshold={setConfidenceThreshold}
       />
     </div>
   );

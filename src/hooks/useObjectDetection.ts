@@ -23,6 +23,7 @@ export const useObjectDetection = () => {
   const requestIdRef = useRef<number | null>(null);
   const emergencyEventDispatched = useRef<boolean>(false);
   const frameSkipCount = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -50,6 +51,8 @@ export const useObjectDetection = () => {
     
     // Process video frames using requestAnimationFrame for better performance
     const processVideoFrame = () => {
+      if (!isMountedRef.current) return;
+      
       frameCount++;
       setDetectFrameCount(frameCount);
       
@@ -61,6 +64,7 @@ export const useObjectDetection = () => {
         // Use the DetectionService to process the current frame
         try {
           DetectionService.processVideo(videoElement, canvas, (results) => {
+            if (!isMountedRef.current) return;
             handleDetectionResults(results);
             // Immediately reset processing flag for better performance
             setProcessing(false);
@@ -82,11 +86,15 @@ export const useObjectDetection = () => {
       }
       
       // Continue the animation loop
-      requestIdRef.current = requestAnimationFrame(processVideoFrame);
+      if (isMountedRef.current) {
+        requestIdRef.current = requestAnimationFrame(processVideoFrame);
+      }
     };
     
     // Start processing frames
-    requestIdRef.current = requestAnimationFrame(processVideoFrame);
+    if (isMountedRef.current) {
+      requestIdRef.current = requestAnimationFrame(processVideoFrame);
+    }
     
     // Clean up when disabled or unmounted
     return () => {
@@ -96,6 +104,14 @@ export const useObjectDetection = () => {
       }
     };
   }, [objectDetectionEnabled]);
+
+  // Track component mount status
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Initialize the detection service when component mounts
   useEffect(() => {
@@ -123,6 +139,8 @@ export const useObjectDetection = () => {
     
     // Clean up function
     return () => {
+      isMountedRef.current = false;
+      
       if (processingTimerRef.current) {
         cancelAnimationFrame(processingTimerRef.current);
         processingTimerRef.current = null;
@@ -137,7 +155,7 @@ export const useObjectDetection = () => {
   // Setup CO2 updating at regular intervals
   useEffect(() => {
     const co2UpdateInterval = window.setInterval(() => {
-      if (objectDetectionEnabled) {
+      if (objectDetectionEnabled && isMountedRef.current) {
         updateCO2Savings();
       }
     }, 2000); // Update CO2 every 2 seconds when detection is active
@@ -150,7 +168,7 @@ export const useObjectDetection = () => {
 
   // Function to trigger emergency mode manually
   const triggerEmergencyMode = () => {
-    if (emergencyMode) return; // Don't trigger if already in emergency mode
+    if (emergencyMode || !isMountedRef.current) return; // Don't trigger if already in emergency mode or unmounted
     
     setEmergencyMode(true);
     
@@ -172,51 +190,61 @@ export const useObjectDetection = () => {
     if (!emergencyEventDispatched.current) {
       emergencyEventDispatched.current = true;
       
-      // Delay event dispatch to ensure component state is updated
-      setTimeout(() => {
-        // Create and dispatch custom event for other components to react to
-        const emergencyEvent = new CustomEvent('emergency-detected', {
-          detail: { type: 'manual', time: new Date() }
-        });
-        window.dispatchEvent(emergencyEvent);
-      }, 50);
-      
-      // Announce emergency mode
-      VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
-      
-      // End emergency mode after some time
-      setTimeout(() => {
-        setEmergencyMode(false);
-        updateEmergencyStatus({
-          active: false,
-          level: "none",
-          type: null,
-          triggers: [],
-          duration: 0
-        });
+      // Use requestAnimationFrame to ensure DOM is in a stable state
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
         
-        console.log('✅ Emergency recording stopped and saved');
-        VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
+        try {
+          // Create and dispatch custom event for other components to react to
+          const emergencyEvent = new CustomEvent('emergency-detected', {
+            detail: { type: 'manual', time: new Date() }
+          });
+          window.dispatchEvent(emergencyEvent);
+        } catch (error) {
+          console.error("Error dispatching emergency event:", error);
+        }
         
-        // Reset flag after emergency is complete
-        setTimeout(() => {
-          emergencyEventDispatched.current = false;
-        }, 1000);
-      }, 20000);
+        // Announce emergency mode
+        VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
+        
+        // End emergency mode after some time with safety checks
+        const emergencyTimeout = setTimeout(() => {
+          if (!isMountedRef.current) return;
+          
+          setEmergencyMode(false);
+          updateEmergencyStatus({
+            active: false,
+            level: "none",
+            type: null,
+            triggers: [],
+            duration: 0
+          });
+          
+          console.log('✅ Emergency recording stopped and saved');
+          VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
+          
+          // Reset flag after emergency is complete
+          const resetTimeout = setTimeout(() => {
+            if (isMountedRef.current) {
+              emergencyEventDispatched.current = false;
+            }
+          }, 1000);
+          
+          return () => clearTimeout(resetTimeout);
+        }, 20000);
+        
+        return () => clearTimeout(emergencyTimeout);
+      });
     }
   };
 
   // Handle detection results with improved performance
   const handleDetectionResults = (results: any) => {
+    if (!isMountedRef.current) return;
+    
     const now = Date.now();
     // Save the latest detection results
     detectionResultsRef.current = results;
-    
-    // Update emergency mode status from results (only if we're in emergency mode)
-    if (emergencyMode && results.emergency === false) {
-      // Don't auto-disable emergency mode from detection results
-      // since we now only trigger it manually
-    }
     
     // Apply confidence threshold filtering
     const filteredObjects = results.objects.filter((obj: any) => 
@@ -256,19 +284,23 @@ export const useObjectDetection = () => {
     if (now - lastDetectionTime.current > 50) { // More frequent updates for real-time
       lastDetectionTime.current = now;
       
-      if (filteredObjects && Array.isArray(filteredObjects)) {
-        // Update detected objects in navigation context
-        updateDetectedObjects(filteredObjects);
-      }
-      
-      if (results.lanes) {
-        // Update lane offset in navigation context
-        updateLaneOffset(results.lanes);
+      if (isMountedRef.current) {
+        if (filteredObjects && Array.isArray(filteredObjects)) {
+          // Update detected objects in navigation context
+          updateDetectedObjects(filteredObjects);
+        }
+        
+        if (results.lanes) {
+          // Update lane offset in navigation context
+          updateLaneOffset(results.lanes);
+        }
       }
     }
   };
 
   const toggleObjectDetection = () => {
+    if (!isMountedRef.current) return;
+    
     const newState = !objectDetectionEnabled;
     setObjectDetectionEnabled(newState);
     
