@@ -28,22 +28,32 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]);
   const emergencyEventHandled = useRef<boolean>(false);
   const isComponentMounted = useRef<boolean>(true);
-  const timeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const animationFrameIdRef = useRef<number | null>(null);
-  const emergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hospitalsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const emergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hospitalsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Track component mount state and clean up all resources
   // This needs to be the first effect to set up the mount flag
   useEffect(() => {
     isComponentMounted.current = true;
     
+    // Define emergency event handler outside to ensure we can properly remove it
+    const handleEmergencyEventSafe = (e: Event) => {
+      if (isComponentMounted.current) {
+        handleEmergencyEvent(e);
+      }
+    };
+    
+    // Add event listener if needed
+    window.addEventListener('emergency-detected', handleEmergencyEventSafe);
+    
     return () => {
       // Signal component is unmounted to prevent further state updates
       isComponentMounted.current = false;
       
-      // Clear all timers and animations to prevent memory leaks
+      // Clean up all timers and animations to prevent memory leaks
       if (timeIntervalRef.current) {
         clearInterval(timeIntervalRef.current);
         timeIntervalRef.current = null;
@@ -69,8 +79,13 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         hospitalsTimeoutRef.current = null;
       }
       
-      // Remove any event listeners
-      window.removeEventListener('emergency-detected', handleEmergencyEvent);
+      // Remove event listeners - reference the same handler function
+      window.removeEventListener('emergency-detected', handleEmergencyEventSafe);
+      
+      // Clear any ongoing state updates that might try to reference unmounted DOM
+      setIsRecording(false);
+      setEmergencyActive(false);
+      setNearbyHospitals([]);
     };
   }, []);
   
@@ -164,16 +179,9 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       // Clean up existing animation frame first
       if (animationFrameIdRef.current) {
         cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
       }
       animationFrameIdRef.current = requestAnimationFrame(calculateFps);
-    }
-    
-    // Remove any existing emergency event listeners to prevent duplicates
-    window.removeEventListener('emergency-detected', handleEmergencyEvent);
-    
-    // Add the event listener only if component is mounted
-    if (isComponentMounted.current) {
-      window.addEventListener('emergency-detected', handleEmergencyEvent);
     }
     
     // Cleanup
@@ -182,7 +190,6 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         cancelAnimationFrame(animationFrameIdRef.current);
         animationFrameIdRef.current = null;
       }
-      window.removeEventListener('emergency-detected', handleEmergencyEvent);
     };
   }, [objectDetectionEnabled, isRecording]);
   
