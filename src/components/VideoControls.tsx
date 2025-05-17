@@ -30,6 +30,20 @@ const VideoControls: React.FC<VideoControlsProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounce function to prevent rapid clicks
+  const debounce = (func: Function, delay = 500) => {
+    return (...args: any[]) => {
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+      }
+      
+      clickTimerRef.current = setTimeout(() => {
+        func(...args);
+      }, delay);
+    };
+  };
 
   const triggerFileInput = () => {
     fileInputRef.current?.click();
@@ -46,13 +60,13 @@ const VideoControls: React.FC<VideoControlsProps> = ({
     }
   };
   
-  const handleToggleCamera = () => {
+  const handleToggleCamera = debounce(() => {
     if (toggleCameraStream) {
       toggleCameraStream();
     }
-  };
+  });
   
-  const handleEmergency = () => {
+  const handleEmergency = debounce(() => {
     if (triggerEmergency) {
       triggerEmergency();
       toast({
@@ -61,7 +75,11 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         variant: "destructive"
       });
     }
-  };
+  });
+  
+  const handleToggleObjectDetection = debounce(() => {
+    toggleObjectDetection();
+  });
 
   return (
     <>
@@ -73,6 +91,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
             variant={isCameraActive ? "destructive" : "secondary"} 
             size="sm" 
             className={`${isCameraActive ? "" : "bg-black/50 hover:bg-black/70"} flex items-center`}
+            disabled={!toggleCameraStream}
           >
             {isCameraActive ? (
               <>
@@ -100,7 +119,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         </Button>
         
         <Button 
-          onClick={toggleObjectDetection}
+          onClick={handleToggleObjectDetection}
           variant={objectDetectionEnabled ? "destructive" : "secondary"}
           size="sm" 
           className={objectDetectionEnabled ? "" : "bg-black/50 hover:bg-black/70"}

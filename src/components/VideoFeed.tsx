@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
@@ -37,6 +36,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   
   const [showMapApiInput, setShowMapApiInput] = useState<boolean>(!localStorage.getItem('mapApiKey'));
   const { toast } = useToast();
+  const [isUpdatingVideo, setIsUpdatingVideo] = useState(false);
 
   const handleSaveMapApiKey = useCallback(() => {
     localStorage.setItem('mapApiKey', mapApiKey);
@@ -46,6 +46,38 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       description: "Map API key has been saved successfully"
     });
   }, [mapApiKey, toast]);
+
+  // Safe camera toggle that prevents race conditions
+  const safeToggleCameraStream = useCallback(() => {
+    // Set updating flag to prevent multiple toggles
+    setIsUpdatingVideo(true);
+    
+    // Delay toggle to ensure React has finished rendering
+    setTimeout(() => {
+      toggleCameraStream();
+      
+      // Reset updating flag after a delay
+      setTimeout(() => {
+        setIsUpdatingVideo(false);
+      }, 500);
+    }, 50);
+  }, [toggleCameraStream]);
+
+  // Safe file upload that prevents race conditions
+  const safeHandleFileUpload = useCallback((file: File) => {
+    // Set updating flag to prevent multiple uploads
+    setIsUpdatingVideo(true);
+    
+    // Delay upload to ensure React has finished rendering
+    setTimeout(() => {
+      handleFileUpload(file);
+      
+      // Reset updating flag after a delay
+      setTimeout(() => {
+        setIsUpdatingVideo(false);
+      }, 500);
+    }, 50);
+  }, [handleFileUpload]);
 
   // Ensure video keeps playing when tab regains focus with error handling
   useEffect(() => {
@@ -90,7 +122,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         canvasRef={canvasRef}
         videoRef={videoRef} 
         objectDetectionEnabled={objectDetectionEnabled}
-        onToggleCamera={toggleCameraStream}
+        onToggleCamera={safeToggleCameraStream}
         isCameraActive={isCameraActive}
       />
       
@@ -125,13 +157,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
 
       {/* Video controls */}
       <VideoControls
-        onFileUpload={handleFileUpload}
+        onFileUpload={safeHandleFileUpload}
         objectDetectionEnabled={objectDetectionEnabled}
         toggleObjectDetection={toggleObjectDetection}
         processing={processing}
         detectFrameCount={detectFrameCount}
         isLoaded={isLoaded}
-        toggleCameraStream={toggleCameraStream}
+        toggleCameraStream={!isUpdatingVideo ? safeToggleCameraStream : undefined}
         isCameraActive={isCameraActive}
         triggerEmergency={triggerEmergencyMode}
       />

@@ -25,6 +25,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [emergencyActive, setEmergencyActive] = useState<boolean>(false);
   const [timeDisplay, setTimeDisplay] = useState<string>('');
   const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]);
+  const emergencyEventHandled = useRef<boolean>(false);
   
   // Initialize canvas size when video dimensions are available
   useEffect(() => {
@@ -84,32 +85,41 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     // Start FPS calculation
     const animationId = requestAnimationFrame(calculateFps);
     
-    // Handle emergency event detection (now it's just for display, triggered by button)
+    // Handle emergency event detection
     const handleEmergencyEvent = (e: Event) => {
+      // Prevent duplicate events
+      if (emergencyEventHandled.current) return;
+      emergencyEventHandled.current = true;
+      
       const customEvent = e as CustomEvent;
       console.log('Emergency detected, starting recording', customEvent.detail);
-      setIsRecording(true);
-      setEmergencyActive(true);
       
-      // Set simulated nearby hospitals
-      setNearbyHospitals([
-        { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
-        { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
-      ]);
-      
-      // Simulate emergency data gathering
+      // Use setTimeout to avoid immediate state updates that could conflict with rendering
       setTimeout(() => {
-        // In a real implementation this would continue recording until the emergency is over
-        setEmergencyActive(false);
-        // Keep recording for a few more seconds
+        setIsRecording(true);
+        setEmergencyActive(true);
+        
+        // Set simulated nearby hospitals
+        setNearbyHospitals([
+          { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
+          { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
+        ]);
+        
+        // Simulate emergency data gathering
         setTimeout(() => {
-          setIsRecording(false);
-          // Keep showing hospitals for a bit longer
+          // In a real implementation this would continue recording until the emergency is over
+          setEmergencyActive(false);
+          // Keep recording for a few more seconds
           setTimeout(() => {
-            setNearbyHospitals([]);
-          }, 5000);
-        }, 10000);
-      }, 5000);
+            setIsRecording(false);
+            // Keep showing hospitals for a bit longer
+            setTimeout(() => {
+              setNearbyHospitals([]);
+              emergencyEventHandled.current = false; // Reset for future events
+            }, 5000);
+          }, 10000);
+        }, 5000);
+      }, 100);
     };
     
     // Add the event listener

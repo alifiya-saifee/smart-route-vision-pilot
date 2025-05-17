@@ -20,8 +20,7 @@ export const useObjectDetection = () => {
   const { updateDetectedObjects, updateLaneOffset, updateCO2Savings, updateEmergencyStatus } = useNavigation();
   const highPriorityDetectionRef = useRef<boolean>(false);
   const requestIdRef = useRef<number | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<BlobPart[]>([]);
+  const emergencyEventDispatched = useRef<boolean>(false);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -114,11 +113,6 @@ export const useObjectDetection = () => {
         cancelAnimationFrame(requestIdRef.current);
         requestIdRef.current = null;
       }
-      
-      // Stop recording if active
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
     };
   }, []);
 
@@ -141,7 +135,6 @@ export const useObjectDetection = () => {
     if (emergencyMode) return; // Don't trigger if already in emergency mode
     
     setEmergencyMode(true);
-    startRecording();
     
     // Update emergency status through navigation context
     updateEmergencyStatus({
@@ -157,47 +150,41 @@ export const useObjectDetection = () => {
       response: "Locating nearest hospital and emergency services"
     });
     
-    // Create and dispatch custom event for other components to react to
-    const emergencyEvent = new CustomEvent('emergency-detected', {
-      detail: { type: 'manual', timestamp: Date.now() }
-    });
-    window.dispatchEvent(emergencyEvent);
-    
-    // Announce emergency mode
-    VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
-    
-    // End emergency mode after some time
-    setTimeout(() => {
-      setEmergencyMode(false);
-      updateEmergencyStatus({
-        active: false,
-        level: "none",
-        type: null,
-        triggers: [],
-        duration: 0
-      });
+    // Only dispatch the event once to avoid React reconciliation issues
+    if (!emergencyEventDispatched.current) {
+      emergencyEventDispatched.current = true;
       
-      console.log('✅ Emergency recording stopped and saved');
-      VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
-    }, 10000);
-  };
-
-  // Start recording function for emergency mode
-  const startRecording = async () => {
-    try {
-      const videoElement = document.querySelector('video');
-      if (!videoElement || !(videoElement instanceof HTMLVideoElement)) {
-        throw new Error('Video element not found');
-      }
+      // Delay event dispatch to ensure component state is updated
+      setTimeout(() => {
+        // Create and dispatch custom event for other components to react to
+        const emergencyEvent = new CustomEvent('emergency-detected', {
+          detail: { type: 'manual', time: new Date() }
+        });
+        window.dispatchEvent(emergencyEvent);
+      }, 50);
       
-      // In a real implementation, this would use MediaRecorder API
-      // to record video and save it for emergency purposes
-      console.log('⚠️ Emergency recording started');
+      // Announce emergency mode
+      VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
       
-      // Simulate recording functionality
-      // In a real application, you would implement actual recording here
-    } catch (error) {
-      console.error('Error starting recording:', error);
+      // End emergency mode after some time
+      setTimeout(() => {
+        setEmergencyMode(false);
+        updateEmergencyStatus({
+          active: false,
+          level: "none",
+          type: null,
+          triggers: [],
+          duration: 0
+        });
+        
+        console.log('✅ Emergency recording stopped and saved');
+        VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
+        
+        // Reset flag after emergency is complete
+        setTimeout(() => {
+          emergencyEventDispatched.current = false;
+        }, 1000);
+      }, 20000);
     }
   };
 

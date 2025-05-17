@@ -12,8 +12,13 @@ const EmergencyAlert: React.FC<EmergencyAlertProps> = ({ className }) => {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    // Handle mount/unmount gracefully to avoid React reconciliation issues
     if (emergencyStatus.active) {
-      setVisible(true);
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        setVisible(true);
+      }, 10);
+      return () => clearTimeout(timer);
     } else {
       // Small delay before hiding to allow for smooth transitions
       const timer = setTimeout(() => {
@@ -25,7 +30,9 @@ const EmergencyAlert: React.FC<EmergencyAlertProps> = ({ className }) => {
 
   if (!visible) return null;
 
-  const alertClass = emergencyStatus.level === 'critical' ? 'emergency-alert' : 'warning-alert';
+  const alertClass = emergencyStatus.level === 'critical' 
+    ? 'bg-red-600/90 text-white p-4 rounded-lg shadow-lg animate-pulse' 
+    : 'bg-yellow-500/90 text-white p-4 rounded-lg shadow-lg';
 
   return (
     <div className={`fixed inset-x-0 mx-auto max-w-screen-lg z-50 px-4 ${className || ''}`} style={{ top: '2rem' }}>
