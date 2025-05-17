@@ -27,6 +27,9 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]);
   const emergencyEventHandled = useRef<boolean>(false);
   const isComponentMounted = useRef<boolean>(true);
+  const emergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hospitalsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Initialize canvas size when video dimensions are available
   useEffect(() => {
@@ -43,11 +46,14 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   // Update time display
   useEffect(() => {
     const timeInterval = setInterval(() => {
+      if (!isComponentMounted.current) return;
       const now = new Date();
       setTimeDisplay(now.toLocaleTimeString());
     }, 1000);
     
-    return () => clearInterval(timeInterval);
+    return () => {
+      clearInterval(timeInterval);
+    };
   }, []);
   
   // Track component mount state
@@ -56,6 +62,11 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     
     return () => {
       isComponentMounted.current = false;
+      
+      // Clear all timeouts on unmount to prevent memory leaks
+      if (emergencyTimeoutRef.current) clearTimeout(emergencyTimeoutRef.current);
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+      if (hospitalsTimeoutRef.current) clearTimeout(hospitalsTimeoutRef.current);
     };
   }, []);
   
@@ -67,6 +78,8 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       }
       return;
     }
+    
+    let animationFrameId: number | null = null;
     
     const calculateFps = () => {
       if (!isComponentMounted.current) return;
@@ -92,15 +105,13 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       
       // Only request next frame if component is still mounted
       if (isComponentMounted.current) {
-        requestAnimationFrame(calculateFps);
+        animationFrameId = requestAnimationFrame(calculateFps);
       }
     };
     
     // Start FPS calculation
-    let animationId: number | null = null;
-    
     if (isComponentMounted.current) {
-      animationId = requestAnimationFrame(calculateFps);
+      animationFrameId = requestAnimationFrame(calculateFps);
     }
     
     // Handle emergency event detection
@@ -115,45 +126,37 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       // Ensure component is still mounted before updating state
       if (!isComponentMounted.current) return;
       
-      // Use RAF to ensure state updates happen in proper animation frame
-      requestAnimationFrame(() => {
+      // Update state safely
+      setIsRecording(true);
+      setEmergencyActive(true);
+      
+      // Set simulated nearby hospitals
+      setNearbyHospitals([
+        { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
+        { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
+      ]);
+      
+      // Simulate emergency data gathering with safety checks
+      emergencyTimeoutRef.current = setTimeout(() => {
         if (!isComponentMounted.current) return;
         
-        setIsRecording(true);
-        setEmergencyActive(true);
-        
-        // Set simulated nearby hospitals
-        setNearbyHospitals([
-          { type: "hospital", name: "Memorial Hospital", distance: "1.2 miles", direction: "ahead" },
-          { type: "hospital", name: "City Medical Center", distance: "2.8 miles", direction: "right" }
-        ]);
-        
-        // Simulate emergency data gathering with safety checks
-        const emergencyTimeout = setTimeout(() => {
+        setEmergencyActive(false);
+        // Keep recording for a few more seconds
+        recordingTimeoutRef.current = setTimeout(() => {
           if (!isComponentMounted.current) return;
           
-          setEmergencyActive(false);
-          // Keep recording for a few more seconds
-          const recordingTimeout = setTimeout(() => {
+          setIsRecording(false);
+          // Keep showing hospitals for a bit longer
+          hospitalsTimeoutRef.current = setTimeout(() => {
             if (!isComponentMounted.current) return;
             
-            setIsRecording(false);
-            // Keep showing hospitals for a bit longer
-            const hospitalsTimeout = setTimeout(() => {
-              if (!isComponentMounted.current) return;
-              
-              setNearbyHospitals([]);
-              emergencyEventHandled.current = false; // Reset for future events
-            }, 5000);
-            
-            return () => clearTimeout(hospitalsTimeout);
-          }, 10000);
+            setNearbyHospitals([]);
+            emergencyEventHandled.current = false; // Reset for future events
+          }, 5000);
           
-          return () => clearTimeout(recordingTimeout);
-        }, 5000);
+        }, 10000);
         
-        return () => clearTimeout(emergencyTimeout);
-      });
+      }, 5000);
     };
     
     // Add the event listener
@@ -161,11 +164,16 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     
     // Cleanup
     return () => {
-      if (animationId !== null) {
-        cancelAnimationFrame(animationId);
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
       }
       window.removeEventListener('emergency-detected', handleEmergencyEvent);
       isComponentMounted.current = false;
+      
+      // Clear all timeouts to prevent state updates after unmount
+      if (emergencyTimeoutRef.current) clearTimeout(emergencyTimeoutRef.current);
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+      if (hospitalsTimeoutRef.current) clearTimeout(hospitalsTimeoutRef.current);
     };
   }, [objectDetectionEnabled, isRecording]);
 

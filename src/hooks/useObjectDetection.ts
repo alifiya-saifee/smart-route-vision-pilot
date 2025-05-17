@@ -24,6 +24,8 @@ export const useObjectDetection = () => {
   const emergencyEventDispatched = useRef<boolean>(false);
   const frameSkipCount = useRef<number>(0);
   const isMountedRef = useRef<boolean>(true);
+  const emergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resetEmergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Handle object detection processing with optimized performance
   useEffect(() => {
@@ -110,6 +112,27 @@ export const useObjectDetection = () => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      
+      // Clear all timeouts and intervals on unmount
+      if (processingTimerRef.current) {
+        cancelAnimationFrame(processingTimerRef.current);
+        processingTimerRef.current = null;
+      }
+      
+      if (requestIdRef.current) {
+        cancelAnimationFrame(requestIdRef.current);
+        requestIdRef.current = null;
+      }
+      
+      if (emergencyTimeoutRef.current) {
+        clearTimeout(emergencyTimeoutRef.current);
+        emergencyTimeoutRef.current = null;
+      }
+      
+      if (resetEmergencyTimeoutRef.current) {
+        clearTimeout(resetEmergencyTimeoutRef.current);
+        resetEmergencyTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -190,8 +213,8 @@ export const useObjectDetection = () => {
     if (!emergencyEventDispatched.current) {
       emergencyEventDispatched.current = true;
       
-      // Use requestAnimationFrame to ensure DOM is in a stable state
-      requestAnimationFrame(() => {
+      // Use setTimeout to ensure DOM is in a stable state before dispatching event
+      setTimeout(() => {
         if (!isMountedRef.current) return;
         
         try {
@@ -208,7 +231,7 @@ export const useObjectDetection = () => {
         VoiceAlertService.speak("Emergency mode activated. Locating nearest hospital.", "emergency", 1);
         
         // End emergency mode after some time with safety checks
-        const emergencyTimeout = setTimeout(() => {
+        emergencyTimeoutRef.current = setTimeout(() => {
           if (!isMountedRef.current) return;
           
           setEmergencyMode(false);
@@ -224,17 +247,13 @@ export const useObjectDetection = () => {
           VoiceAlertService.speak("Emergency response complete. Nearest hospital: Memorial Hospital, 1.2 miles ahead.", "general", 1);
           
           // Reset flag after emergency is complete
-          const resetTimeout = setTimeout(() => {
+          resetEmergencyTimeoutRef.current = setTimeout(() => {
             if (isMountedRef.current) {
               emergencyEventDispatched.current = false;
             }
           }, 1000);
-          
-          return () => clearTimeout(resetTimeout);
         }, 20000);
-        
-        return () => clearTimeout(emergencyTimeout);
-      });
+      }, 300); // Small delay to ensure DOM stability
     }
   };
 
@@ -340,3 +359,4 @@ export const useObjectDetection = () => {
     triggerEmergencyMode
   };
 };
+
