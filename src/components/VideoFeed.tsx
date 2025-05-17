@@ -19,7 +19,8 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     videoSrc,
     handleFileUpload,
     toggleCameraStream,
-    isCameraActive
+    isCameraActive,
+    uniqueId
   } = useVideoProcessing();
   
   const {
@@ -48,10 +49,16 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const mapApiKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const mountCounterRef = useRef<number>(0);
+  const cleanupFunctionsRef = useRef<Array<() => void>>([]);
 
   // Generate stable component keys
   const componentId = useRef<string>(`video-feed-${Date.now()}`).current;
   
+  // Helper to register cleanup functions
+  const registerCleanup = useCallback((cleanupFn: () => void) => {
+    cleanupFunctionsRef.current.push(cleanupFn);
+  }, []);
+
   // Handle saving the map API key with debounce
   const handleSaveMapApiKey = useCallback(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
@@ -73,7 +80,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         description: "Map API key has been saved successfully"
       });
     }, 300) as unknown as NodeJS.Timeout;
-  }, [mapApiKey, toast]);
+    
+    // Register cleanup for this timeout
+    registerCleanup(() => {
+      if (mapApiKeyTimeoutRef.current) {
+        clearTimeout(mapApiKeyTimeoutRef.current);
+        mapApiKeyTimeoutRef.current = null;
+      }
+    });
+  }, [mapApiKey, toast, registerCleanup]);
 
   // Track component mount state with better unmounting protection
   useEffect(() => {
@@ -82,8 +97,17 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     mountCounterRef.current++;
     
     return () => {
-      // Signal component is unmounting
+      // First, signal that component is unmounting to prevent any new operations
       unmountingRef.current = true;
+      
+      // Execute all registered cleanup functions
+      cleanupFunctionsRef.current.forEach(cleanup => {
+        try {
+          cleanup();
+        } catch (err) {
+          console.error("Cleanup error:", err);
+        }
+      });
       
       // Clean up any pending timeouts
       if (safeOperationTimeoutRef.current) {
@@ -100,6 +124,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         clearTimeout(mapApiKeyTimeoutRef.current);
         mapApiKeyTimeoutRef.current = null;
       }
+      
+      // Clear the cleanup functions array
+      cleanupFunctionsRef.current = [];
       
       // Finally set mounted flag to false
       isMountedRef.current = false;
@@ -134,7 +161,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         });
       }
     }, 10) as unknown as NodeJS.Timeout;
-  }, [toggleCameraStream, isUpdatingVideo]);
+    
+    // Register cleanup for this timeout
+    registerCleanup(() => {
+      if (safeOperationTimeoutRef.current) {
+        clearTimeout(safeOperationTimeoutRef.current);
+        safeOperationTimeoutRef.current = null;
+      }
+    });
+  }, [toggleCameraStream, isUpdatingVideo, registerCleanup]);
 
   // Safe file upload with improved safety and error handling
   const safeHandleFileUpload = useCallback((file: File) => {
@@ -163,7 +198,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         });
       }
     }, 10) as unknown as NodeJS.Timeout;
-  }, [handleFileUpload, isUpdatingVideo]);
+    
+    // Register cleanup for this timeout
+    registerCleanup(() => {
+      if (safeOperationTimeoutRef.current) {
+        clearTimeout(safeOperationTimeoutRef.current);
+        safeOperationTimeoutRef.current = null;
+      }
+    });
+  }, [handleFileUpload, isUpdatingVideo, registerCleanup]);
 
   // Handle visibility changes safely with improved cleanup
   useEffect(() => {
@@ -184,20 +227,42 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
           if (!isMountedRef.current || unmountingRef.current || !videoRef.current) return;
           
           try {
-            videoRef.current.play().catch(error => {
-              console.error("Error playing video:", error);
-            });
+            const playPromise = videoRef.current.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(error => {
+                console.error("Error playing video:", error);
+              });
+            }
           } catch (error) {
             console.error("Error trying to play video:", error);
           }
           
           visibilityTimeoutRef.current = null;
         }, 300) as unknown as NodeJS.Timeout;
+        
+        // Register cleanup for this timeout
+        registerCleanup(() => {
+          if (visibilityTimeoutRef.current) {
+            clearTimeout(visibilityTimeoutRef.current);
+            visibilityTimeoutRef.current = null;
+          }
+        });
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleVisibilityChange);
+
+    // Register cleanup for event listeners
+    registerCleanup(() => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+      
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+        visibilityTimeoutRef.current = null;
+      }
+    });
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -208,13 +273,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         visibilityTimeoutRef.current = null;
       }
     };
-  }, [videoRef, isCameraActive]);
+  }, [videoRef, isCameraActive, registerCleanup]);
 
-  // Use stable keys for all components based on props and state
-  const videoKey = `video-${componentId}-${isCameraActive ? 'camera' : 'file'}-${mountCounterRef.current}`;
-  const canvasKey = `canvas-${componentId}-${objectDetectionEnabled ? 'detection' : 'normal'}-${mountCounterRef.current}`;
-  const controlsKey = `controls-${componentId}-${objectDetectionEnabled ? 'detection' : 'normal'}-${mountCounterRef.current}`;
-  const mapModalKey = `map-api-modal-${componentId}-${showMapApiInput ? 'show' : 'hidden'}-${mountCounterRef.current}`;
+  // Use more stable keys for components
+  const videoKey = `video-${uniqueId}-${isCameraActive ? 'camera' : 'file'}-${mountCounterRef.current}`;
+  const canvasKey = `canvas-${uniqueId}-${objectDetectionEnabled ? 'detection' : 'normal'}-${mountCounterRef.current}`;
+  const controlsKey = `controls-${uniqueId}-${objectDetectionEnabled ? 'detection' : 'normal'}-${mountCounterRef.current}`;
+  const mapModalKey = `map-api-modal-${uniqueId}-${showMapApiInput ? 'show' : 'hidden'}-${mountCounterRef.current}`;
+  const errorKey = `error-${uniqueId}-${error ? 'true' : 'false'}-${mountCounterRef.current}`;
+  const loadingKey = `loading-${uniqueId}-${mountCounterRef.current}`;
 
   return (
     <div 
@@ -226,13 +293,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       {videoRef && (
         <video
           ref={videoRef}
+          key={videoKey}
           src={!isCameraActive ? videoSrc : undefined}
           loop={!isCameraActive}
           muted
           playsInline
-          autoPlay
+          autoPlay={!isCameraActive}
           className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
-          key={videoKey}
+          data-testid="video-element"
         />
       )}
       
@@ -251,8 +319,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       {/* Loading/error states */}
       {!isLoaded && (
         <div
-          key={`loading-state-${componentId}-${error ? 'error' : 'loading'}`}
+          key={error ? errorKey : loadingKey}
           className="absolute inset-0 flex flex-col items-center justify-center bg-gray-800 text-white"
+          data-testid={error ? "error-state" : "loading-state"}
         >
           {error ? (
             <>

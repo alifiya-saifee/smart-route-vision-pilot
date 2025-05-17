@@ -39,6 +39,13 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   const [thresholdPopoverOpen, setThresholdPopoverOpen] = useState(false);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
   const isMountedRef = useRef<boolean>(true);
+  const cleanupFunctionsRef = useRef<Array<() => void>>([]);
+  const instanceIdRef = useRef<string>(`controls-${Date.now()}`);
+
+  // Helper to register cleanup functions
+  const registerCleanup = useCallback((cleanupFn: () => void) => {
+    cleanupFunctionsRef.current.push(cleanupFn);
+  }, []);
 
   // Track component mount state
   useEffect(() => {
@@ -51,13 +58,25 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         clickTimerRef.current = null;
       }
       
+      // Execute all registered cleanup functions
+      cleanupFunctionsRef.current.forEach(cleanup => {
+        try {
+          cleanup();
+        } catch (err) {
+          console.error("Cleanup error:", err);
+        }
+      });
+      
+      // Clear the cleanup functions array
+      cleanupFunctionsRef.current = [];
+      
       // Set mounted flag to false
       isMountedRef.current = false;
     };
   }, []);
 
   // Debounce function to prevent rapid clicks with loading state
-  const debounce = (func: Function, delay = 800) => {
+  const debounce = useCallback((func: Function, delay = 800) => {
     return (...args: any[]) => {
       if (clickTimerRef.current || isActionInProgress || !isMountedRef.current) {
         return;
@@ -84,16 +103,24 @@ const VideoControls: React.FC<VideoControlsProps> = ({
           }, 300);
         }
       }, delay) as unknown as NodeJS.Timeout;
+      
+      // Register cleanup for this timer
+      registerCleanup(() => {
+        if (clickTimerRef.current) {
+          clearTimeout(clickTimerRef.current);
+          clickTimerRef.current = null;
+        }
+      });
     };
-  };
+  }, [isActionInProgress, registerCleanup]);
 
-  const triggerFileInput = () => {
+  const triggerFileInput = useCallback(() => {
     if (!isActionInProgress && fileInputRef.current && isMountedRef.current) {
       fileInputRef.current.click();
     }
-  };
+  }, [isActionInProgress]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && !isActionInProgress && isMountedRef.current) {
       setIsActionInProgress(true);
@@ -116,68 +143,138 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         }
       }, 100);
     }
-  };
+  }, [isActionInProgress, onFileUpload]);
   
-  const handleToggleCamera = debounce(() => {
-    if (toggleCameraStream && isMountedRef.current) {
-      toggleCameraStream();
-    }
-  });
-  
-  const handleEmergency = debounce(() => {
-    if (triggerEmergency && isMountedRef.current) {
-      triggerEmergency();
+  const handleToggleCamera = useCallback(() => {
+    if (toggleCameraStream && isMountedRef.current && !isActionInProgress) {
+      setIsActionInProgress(true);
       
-      if (isMountedRef.current) {
-        toast({
-          title: "Emergency Mode Activated",
-          description: "Scanning for nearest emergency services",
-          variant: "destructive"
-        });
-      }
+      // Add small delay for better stability
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
+        
+        try {
+          toggleCameraStream();
+        } catch (error) {
+          console.error("Error toggling camera:", error);
+        }
+        
+        // Reset action state after a delay
+        setTimeout(() => {
+          if (!isMountedRef.current) return;
+          setIsActionInProgress(false);
+        }, 500);
+      });
     }
-  });
+  }, [toggleCameraStream, isActionInProgress]);
   
-  const handleToggleObjectDetection = debounce(() => {
-    if (isMountedRef.current) {
-      toggleObjectDetection();
+  const handleEmergency = useCallback(() => {
+    if (triggerEmergency && isMountedRef.current && !isActionInProgress) {
+      setIsActionInProgress(true);
+      
+      // Use requestAnimationFrame for more stable state updates
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
+        
+        try {
+          triggerEmergency();
+          
+          if (isMountedRef.current) {
+            toast({
+              title: "Emergency Mode Activated",
+              description: "Scanning for nearest emergency services",
+              variant: "destructive"
+            });
+          }
+        } catch (error) {
+          console.error("Error triggering emergency mode:", error);
+        }
+        
+        // Reset action state after a delay
+        setTimeout(() => {
+          if (!isMountedRef.current) return;
+          setIsActionInProgress(false);
+        }, 500);
+      });
     }
-  });
+  }, [triggerEmergency, toast, isActionInProgress]);
   
-  const handleThresholdChange = (value: number[]) => {
+  const handleToggleObjectDetection = useCallback(() => {
+    if (isMountedRef.current && !isActionInProgress) {
+      setIsActionInProgress(true);
+      
+      // Use requestAnimationFrame for more stable state updates
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
+        
+        try {
+          toggleObjectDetection();
+        } catch (error) {
+          console.error("Error toggling object detection:", error);
+        }
+        
+        // Reset action state after a delay
+        setTimeout(() => {
+          if (!isMountedRef.current) return;
+          setIsActionInProgress(false);
+        }, 500);
+      });
+    }
+  }, [toggleObjectDetection, isActionInProgress]);
+  
+  const handleThresholdChange = useCallback((value: number[]) => {
     if (setConfidenceThreshold && !isActionInProgress && isMountedRef.current) {
       setIsActionInProgress(true);
       
-      setTimeout(() => {
+      // Use requestAnimationFrame for more stable state updates
+      requestAnimationFrame(() => {
         if (!isMountedRef.current) return;
         
-        setConfidenceThreshold(value[0]);
-        
-        if (isMountedRef.current) {
-          toast({
-            title: "Detection Threshold Updated",
-            description: `Now showing objects with ${Math.round(value[0] * 100)}% confidence or higher`,
-            variant: "default"
-          });
+        try {
+          setConfidenceThreshold(value[0]);
+          
+          if (isMountedRef.current) {
+            toast({
+              title: "Detection Threshold Updated",
+              description: `Now showing objects with ${Math.round(value[0] * 100)}% confidence or higher`,
+              variant: "default"
+            });
+          }
+        } catch (error) {
+          console.error("Error updating confidence threshold:", error);
         }
         
-        if (isMountedRef.current) {
-          setTimeout(() => {
-            if (!isMountedRef.current) return;
-            setIsActionInProgress(false);
-          }, 300);
-        }
-      }, 100);
+        // Reset action state after a delay
+        setTimeout(() => {
+          if (!isMountedRef.current) return;
+          setIsActionInProgress(false);
+        }, 500);
+      });
     }
-  };
+  }, [setConfidenceThreshold, isActionInProgress, toast]);
 
+  // Handle popover state safely
+  const handleOpenPopoverChange = useCallback((open: boolean) => {
+    if (!isMountedRef.current || isActionInProgress) return;
+    
+    // Use requestAnimationFrame for more stable state updates
+    requestAnimationFrame(() => {
+      if (!isMountedRef.current) return;
+      setThresholdPopoverOpen(open);
+    });
+  }, [isActionInProgress]);
+
+  // Stabilize IDs for child elements
+  const instanceId = instanceIdRef.current;
+  
   // Create stable ID keys for child elements
-  const uploadButtonId = "upload-video-button";
-  const detectionButtonId = "toggle-detection-button";
-  const thresholdButtonId = "threshold-settings-button";
-  const emergencyButtonId = "emergency-button";
-  const processingId = "processing-indicator";
-  const statusId = "detection-status";
+  const uploadButtonId = `upload-video-button-${instanceId}`;
+  const detectionButtonId = `toggle-detection-button-${instanceId}`;
+  const thresholdButtonId = `threshold-settings-button-${instanceId}`;
+  const emergencyButtonId = `emergency-button-${instanceId}`;
+  const processingId = `processing-indicator-${instanceId}`;
+  const statusId = `detection-status-${instanceId}`;
+  const fileInputId = `file-input-${instanceId}`;
 
   return (
     <>
@@ -190,6 +287,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
             size="sm" 
             className={`${isCameraActive ? "" : "bg-black/50 hover:bg-black/70"} flex items-center`}
             disabled={!toggleCameraStream || isActionInProgress}
+            data-testid="camera-toggle-button"
           >
             {isCameraActive ? (
               <>
@@ -212,6 +310,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
           size="sm" 
           className="bg-black/50 hover:bg-black/70"
           disabled={isCameraActive || isActionInProgress}
+          data-testid="upload-video-button"
         >
           <Upload className="mr-2 h-4 w-4" />
           Upload Video
@@ -224,6 +323,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
           size="sm" 
           className={objectDetectionEnabled ? "" : "bg-black/50 hover:bg-black/70"}
           disabled={isActionInProgress}
+          data-testid="toggle-detection-button"
         >
           {objectDetectionEnabled ? "Disable Detection" : "Enable Detection"}
         </Button>
@@ -231,7 +331,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         {objectDetectionEnabled && setConfidenceThreshold && (
           <Popover 
             open={thresholdPopoverOpen} 
-            onOpenChange={(open) => !isActionInProgress && isMountedRef.current && setThresholdPopoverOpen(open)}
+            onOpenChange={handleOpenPopoverChange}
           >
             <PopoverTrigger asChild>
               <Button 
@@ -240,6 +340,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
                 size="sm" 
                 className="bg-black/50 hover:bg-black/70"
                 disabled={isActionInProgress}
+                data-testid="threshold-settings-button"
               >
                 <BarChart2 className="mr-2 h-4 w-4" />
                 {Math.round(confidenceThreshold * 100)}% Threshold
@@ -279,6 +380,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
             size="sm"
             className="bg-red-500 hover:bg-red-600"
             disabled={isActionInProgress}
+            data-testid="emergency-button"
           >
             <Hospital className="mr-2 h-4 w-4" />
             Emergency
@@ -286,17 +388,23 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         )}
         
         <input 
+          id={fileInputId}
           ref={fileInputRef}
           type="file" 
           accept="video/*" 
           onChange={handleFileChange} 
           className="hidden" 
+          data-testid="file-input"
         />
       </div>
       
       {/* Processing indicator - show real-time status */}
       {processing && objectDetectionEnabled && (
-        <div id={processingId} className="absolute bottom-4 left-4 bg-black/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
+        <div 
+          id={processingId} 
+          className="absolute bottom-4 left-4 bg-black/70 px-3 py-1 rounded-full text-xs text-white flex items-center"
+          data-testid="processing-indicator"
+        >
           <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
           Real-time detection: frame {detectFrameCount}
         </div>
@@ -304,7 +412,11 @@ const VideoControls: React.FC<VideoControlsProps> = ({
       
       {/* Detection status indicator */}
       {objectDetectionEnabled && isLoaded && (
-        <div id={statusId} className="absolute bottom-4 right-4 bg-green-600/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
+        <div 
+          id={statusId} 
+          className="absolute bottom-4 right-4 bg-green-600/70 px-3 py-1 rounded-full text-xs text-white flex items-center"
+          data-testid="detection-status"
+        >
           <div className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></div>
           Traffic Detection Active {confidenceThreshold && `(${Math.round(confidenceThreshold * 100)}% threshold)`}
         </div>

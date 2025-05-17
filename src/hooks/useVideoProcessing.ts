@@ -20,13 +20,34 @@ export const useVideoProcessing = () => {
   const { toast } = useToast();
   const videoErrorCount = useRef<number>(0);
   const isMountedRef = useRef<boolean>(true);
+  const cleanupFunctionsRef = useRef<Array<() => void>>([]);
+  const uniqueIdRef = useRef(`video-${Date.now()}`);
   
-  // Track component mount state
+  // Track component mount state with improved cleanup tracking
   useEffect(() => {
     isMountedRef.current = true;
+    
     return () => {
+      // Set unmounted flag first to prevent any new operations
       isMountedRef.current = false;
+      
+      // Execute all registered cleanup functions
+      cleanupFunctionsRef.current.forEach(cleanup => {
+        try {
+          cleanup();
+        } catch (err) {
+          console.error("Cleanup error:", err);
+        }
+      });
+      
+      // Clear the cleanup functions array
+      cleanupFunctionsRef.current = [];
     };
+  }, []);
+
+  // Helper to register cleanup functions
+  const registerCleanup = useCallback((cleanupFn: () => void) => {
+    cleanupFunctionsRef.current.push(cleanupFn);
   }, []);
 
   useEffect(() => {
@@ -70,50 +91,102 @@ export const useVideoProcessing = () => {
       }
     };
     
-    // Register event listeners
-    videoElement.addEventListener('canplay', canPlayHandler);
-    videoElement.addEventListener('error', errorHandler);
-    
-    // Start playing the video if not using camera
-    if (!isCameraActive) {
-      videoElement.play().catch(err => {
-        if (!isMountedRef.current) return;
-        console.error("Video playback error:", err);
-        if (errorHandler) errorHandler(new Event('error'));
-      });
+    // Register event listeners with proper error handling
+    try {
+      videoElement.addEventListener('canplay', canPlayHandler);
+      videoElement.addEventListener('error', errorHandler);
+    } catch (err) {
+      console.error("Error adding event listeners:", err);
     }
     
-    // Clean up event listeners
-    return () => {
-      if (videoElement) {
-        if (canPlayHandler) videoElement.removeEventListener('canplay', canPlayHandler);
-        if (errorHandler) videoElement.removeEventListener('error', errorHandler);
+    // Start playing the video if not using camera
+    if (!isCameraActive && videoElement) {
+      try {
+        const playPromise = videoElement.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            if (!isMountedRef.current) return;
+            console.error("Video playback error:", err);
+            if (errorHandler) errorHandler(new Event('error'));
+          });
+        }
+      } catch (err) {
+        console.error("Error starting video playback:", err);
       }
-      
-      // Set handlers to null to avoid potential memory leaks
-      canPlayHandler = null;
-      errorHandler = null;
+    }
+    
+    // Register cleanup using our helper
+    registerCleanup(() => {
+      try {
+        if (videoElement) {
+          if (canPlayHandler) videoElement.removeEventListener('canplay', canPlayHandler);
+          if (errorHandler) videoElement.removeEventListener('error', errorHandler);
+          
+          // Pause video on cleanup to prevent memory leaks
+          try {
+            videoElement.pause();
+            videoElement.src = '';
+            videoElement.load();
+          } catch (err) {
+            console.error("Error cleaning up video element:", err);
+          }
+        }
+      } catch (err) {
+        console.error("Error removing event listeners:", err);
+      }
+    });
+    
+    return () => {
+      try {
+        if (videoElement) {
+          if (canPlayHandler) videoElement.removeEventListener('canplay', canPlayHandler);
+          if (errorHandler) videoElement.removeEventListener('error', errorHandler);
+        }
+      } catch (err) {
+        console.error("Error removing event listeners in cleanup:", err);
+      }
     };
-  }, [videoSrc, isCameraActive]);
+  }, [videoSrc, isCameraActive, registerCleanup]);
 
-  // Function to toggle camera stream with safety checks
+  // Function to toggle camera stream with improved safety and cleanup
   const toggleCameraStream = useCallback(async () => {
     if (!isMountedRef.current) return;
     
     try {
       if (isCameraActive && cameraStreamRef.current) {
-        // Stop all tracks in the stream
-        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        // Safely stop all tracks in the stream
+        try {
+          cameraStreamRef.current.getTracks().forEach(track => {
+            try {
+              track.stop();
+            } catch (err) {
+              console.error("Error stopping camera track:", err);
+            }
+          });
+        } catch (err) {
+          console.error("Error accessing camera tracks:", err);
+        }
+        
         cameraStreamRef.current = null;
         
         if (isMountedRef.current) {
           setIsCameraActive(false);
           
-          // Reset video source
+          // Reset video source with improved error handling
           if (videoRef.current) {
-            videoRef.current.srcObject = null;
-            videoRef.current.src = videoSrc;
-            videoRef.current.play().catch(err => console.error("Error playing video after camera stop:", err));
+            try {
+              videoRef.current.srcObject = null;
+              videoRef.current.src = videoSrc;
+              
+              const playPromise = videoRef.current.play();
+              if (playPromise !== undefined) {
+                playPromise.catch(err => {
+                  console.error("Error playing video after camera stop:", err);
+                });
+              }
+            } catch (err) {
+              console.error("Error resetting video source:", err);
+            }
           }
           
           toast({
@@ -124,18 +197,35 @@ export const useVideoProcessing = () => {
         return;
       }
 
-      // Request camera access
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: "environment", // Prefer rear camera on mobile
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      });
+      // Request camera access with better error handling
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: "environment", // Prefer rear camera on mobile
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        });
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        console.error("Error accessing camera:", err);
+        setError("Could not access camera. Please check permissions.");
+        toast({
+          title: "Camera error",
+          description: "Failed to access device camera. Check permissions.",
+          variant: "destructive"
+        });
+        return;
+      }
       
       if (!isMountedRef.current) {
         // Clean up stream if component unmounted during async operation
-        stream.getTracks().forEach(track => track.stop());
+        try {
+          stream.getTracks().forEach(track => track.stop());
+        } catch (err) {
+          console.error("Error stopping tracks after unmount:", err);
+        }
         return;
       }
       
@@ -144,8 +234,22 @@ export const useVideoProcessing = () => {
       
       // Set the stream as the video source
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        try {
+          videoRef.current.srcObject = stream;
+          
+          const playPromise = videoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(err => {
+              if (!isMountedRef.current) return;
+              console.error("Error playing camera stream:", err);
+              setError("Could not play camera stream.");
+            });
+          }
+        } catch (err) {
+          console.error("Error setting video source:", err);
+          setError("Could not set camera as video source.");
+          return;
+        }
       }
       
       setIsCameraActive(true);
@@ -159,13 +263,13 @@ export const useVideoProcessing = () => {
     } catch (err) {
       if (!isMountedRef.current) return;
       
-      console.error("Error accessing camera:", err);
-      setError("Could not access camera. Please check permissions.");
+      console.error("Unexpected error accessing camera:", err);
+      setError("Could not access camera. Unexpected error occurred.");
       setIsCameraActive(false);
       
       toast({
         title: "Camera error",
-        description: "Failed to access device camera. Check permissions.",
+        description: "Failed to access device camera. Unknown error occurred.",
         variant: "destructive"
       });
     }
@@ -174,14 +278,29 @@ export const useVideoProcessing = () => {
   const handleFileUpload = useCallback((file: File) => {
     if (!isMountedRef.current) return;
     
-    // Stop camera if active
+    // Stop camera if active with improved error handling
     if (isCameraActive && cameraStreamRef.current) {
-      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      try {
+        cameraStreamRef.current.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch (err) {
+            console.error("Error stopping camera track:", err);
+          }
+        });
+      } catch (err) {
+        console.error("Error accessing camera tracks:", err);
+      }
+      
       cameraStreamRef.current = null;
       setIsCameraActive(false);
       
       if (videoRef.current) {
-        videoRef.current.srcObject = null;
+        try {
+          videoRef.current.srcObject = null;
+        } catch (err) {
+          console.error("Error clearing srcObject:", err);
+        }
       }
     }
     
@@ -197,32 +316,68 @@ export const useVideoProcessing = () => {
       return;
     }
 
-    const url = URL.createObjectURL(file);
-    setVideoSrc(url);
-    setIsLoaded(false);
-    setError(null);
-    videoErrorCount.current = 0;
-    
-    toast({
-      title: "Video uploaded",
-      description: `Now playing: ${file.name}`,
-    });
-  }, [isCameraActive, toast]);
+    // Create object URL with proper cleanup registration
+    try {
+      const url = URL.createObjectURL(file);
+      
+      // Register cleanup for this URL
+      registerCleanup(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          console.error("Error revoking object URL:", err);
+        }
+      });
+      
+      setVideoSrc(url);
+      setIsLoaded(false);
+      setError(null);
+      videoErrorCount.current = 0;
+      
+      toast({
+        title: "Video uploaded",
+        description: `Now playing: ${file.name}`,
+      });
+    } catch (err) {
+      console.error("Error creating object URL:", err);
+      toast({
+        title: "Upload error",
+        description: "Failed to process video file.",
+        variant: "destructive"
+      });
+    }
+  }, [isCameraActive, toast, registerCleanup]);
 
-  // Clean up on unmount
+  // Clean up on unmount with improved error handling
   useEffect(() => {
+    // Register cleanup for any blob URLs
+    if (videoSrc.startsWith('blob:')) {
+      registerCleanup(() => {
+        try {
+          URL.revokeObjectURL(videoSrc);
+        } catch (err) {
+          console.error("Error revoking object URL on unmount:", err);
+        }
+      });
+    }
+    
     return () => {
       if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        try {
+          cameraStreamRef.current.getTracks().forEach(track => {
+            try {
+              track.stop();
+            } catch (err) {
+              console.error("Error stopping camera track on unmount:", err);
+            }
+          });
+        } catch (err) {
+          console.error("Error accessing camera tracks on unmount:", err);
+        }
         cameraStreamRef.current = null;
       }
-      
-      // Release any object URLs to prevent memory leaks
-      if (videoSrc.startsWith('blob:') && isMountedRef.current) {
-        URL.revokeObjectURL(videoSrc);
-      }
     };
-  }, [videoSrc]);
+  }, [videoSrc, registerCleanup]);
 
   return {
     videoRef,
@@ -231,6 +386,7 @@ export const useVideoProcessing = () => {
     videoSrc,
     handleFileUpload,
     toggleCameraStream,
-    isCameraActive
+    isCameraActive,
+    uniqueId: uniqueIdRef.current // Provide stable unique ID
   };
 };
