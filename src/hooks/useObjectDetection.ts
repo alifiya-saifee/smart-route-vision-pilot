@@ -26,88 +26,9 @@ export const useObjectDetection = () => {
   const isMountedRef = useRef<boolean>(true);
   const emergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resetEmergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const co2UpdateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Handle object detection processing with optimized performance
-  useEffect(() => {
-    if (!objectDetectionEnabled || !canvasRef.current) {
-      // If detection is disabled, clear any existing processing
-      if (processingTimerRef.current) {
-        cancelAnimationFrame(processingTimerRef.current);
-        processingTimerRef.current = null;
-      }
-      if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
-        requestIdRef.current = null;
-      }
-      return;
-    }
-    
-    let frameCount = 0;
-    const videoElement = document.querySelector('video');
-    
-    if (!videoElement) {
-      return;
-    }
-    
-    const canvas = canvasRef.current;
-    
-    // Process video frames using requestAnimationFrame for better performance
-    const processVideoFrame = () => {
-      if (!isMountedRef.current) return;
-      
-      frameCount++;
-      setDetectFrameCount(frameCount);
-      
-      // Optimize frame processing by skipping frames when needed
-      // Process every frame regardless of priority for smoother real-time experience
-      if (!processing) {
-        setProcessing(true);
-        
-        // Use the DetectionService to process the current frame
-        try {
-          DetectionService.processVideo(videoElement, canvas, (results) => {
-            if (!isMountedRef.current) return;
-            handleDetectionResults(results);
-            // Immediately reset processing flag for better performance
-            setProcessing(false);
-          });
-        } catch (error) {
-          console.error("Error processing video frame:", error);
-          setProcessing(false);
-        }
-      } else {
-        // If we're still processing the previous frame, increment the skip counter
-        frameSkipCount.current++;
-        
-        // If we've skipped too many frames, force reset the processing state
-        // This prevents getting stuck in processing mode
-        if (frameSkipCount.current > 10) {
-          setProcessing(false);
-          frameSkipCount.current = 0;
-        }
-      }
-      
-      // Continue the animation loop
-      if (isMountedRef.current) {
-        requestIdRef.current = requestAnimationFrame(processVideoFrame);
-      }
-    };
-    
-    // Start processing frames
-    if (isMountedRef.current) {
-      requestIdRef.current = requestAnimationFrame(processVideoFrame);
-    }
-    
-    // Clean up when disabled or unmounted
-    return () => {
-      if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
-        requestIdRef.current = null;
-      }
-    };
-  }, [objectDetectionEnabled]);
-
-  // Track component mount status
+  // Track component mount state - this needs to be the first effect
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -133,11 +54,106 @@ export const useObjectDetection = () => {
         clearTimeout(resetEmergencyTimeoutRef.current);
         resetEmergencyTimeoutRef.current = null;
       }
+      
+      if (co2UpdateIntervalRef.current) {
+        clearInterval(co2UpdateIntervalRef.current);
+        co2UpdateIntervalRef.current = null;
+      }
     };
   }, []);
 
+  // Handle object detection processing with optimized performance
+  useEffect(() => {
+    if (!objectDetectionEnabled || !canvasRef.current || !isMountedRef.current) {
+      // If detection is disabled or component unmounted, clear any existing processing
+      if (requestIdRef.current) {
+        cancelAnimationFrame(requestIdRef.current);
+        requestIdRef.current = null;
+      }
+      return;
+    }
+    
+    let frameCount = 0;
+    const videoElement = document.querySelector('video');
+    
+    if (!videoElement || !isMountedRef.current) {
+      return;
+    }
+    
+    const canvas = canvasRef.current;
+    
+    // Process video frames using requestAnimationFrame for better performance
+    const processVideoFrame = () => {
+      if (!isMountedRef.current) {
+        // If component unmounted, cancel animation frame
+        if (requestIdRef.current) {
+          cancelAnimationFrame(requestIdRef.current);
+          requestIdRef.current = null;
+        }
+        return;
+      }
+      
+      frameCount++;
+      setDetectFrameCount(frameCount);
+      
+      // Process frame if not already processing
+      if (!processing && isMountedRef.current) {
+        setProcessing(true);
+        
+        // Use the DetectionService to process the current frame
+        try {
+          DetectionService.processVideo(videoElement, canvas, (results) => {
+            if (!isMountedRef.current) return;
+            handleDetectionResults(results);
+            // Immediately reset processing flag for better performance
+            setProcessing(false);
+          });
+        } catch (error) {
+          console.error("Error processing video frame:", error);
+          if (isMountedRef.current) {
+            setProcessing(false);
+          }
+        }
+      } else {
+        // If we're still processing the previous frame, increment the skip counter
+        frameSkipCount.current++;
+        
+        // If we've skipped too many frames, force reset the processing state
+        // This prevents getting stuck in processing mode
+        if (frameSkipCount.current > 10 && isMountedRef.current) {
+          setProcessing(false);
+          frameSkipCount.current = 0;
+        }
+      }
+      
+      // Only continue the animation loop if component is still mounted
+      if (isMountedRef.current) {
+        requestIdRef.current = requestAnimationFrame(processVideoFrame);
+      }
+    };
+    
+    // Start processing frames only if component is mounted
+    if (isMountedRef.current) {
+      // Always cancel any existing animation frame before starting a new one
+      if (requestIdRef.current) {
+        cancelAnimationFrame(requestIdRef.current);
+      }
+      requestIdRef.current = requestAnimationFrame(processVideoFrame);
+    }
+    
+    // Clean up when disabled or unmounted
+    return () => {
+      if (requestIdRef.current) {
+        cancelAnimationFrame(requestIdRef.current);
+        requestIdRef.current = null;
+      }
+    };
+  }, [objectDetectionEnabled]);
+
   // Initialize the detection service when component mounts
   useEffect(() => {
+    if (!isMountedRef.current) return;
+    
     const initializeDetection = async () => {
       try {
         const status = await DetectionService.initialize();
@@ -149,9 +165,11 @@ export const useObjectDetection = () => {
           window.speechSynthesis.getVoices();
           
           // Announce ready status (only when first initialized)
-          setTimeout(() => {
-            VoiceAlertService.speak("Detection system ready", "general", 1);
-          }, 1000);
+          if (isMountedRef.current) {
+            setTimeout(() => {
+              VoiceAlertService.speak("Detection system ready", "general", 1);
+            }, 1000);
+          }
         }
       } catch (err) {
         console.error("Failed to initialize detection:", err);
@@ -159,39 +177,37 @@ export const useObjectDetection = () => {
     };
     
     initializeDetection();
-    
-    // Clean up function
-    return () => {
-      isMountedRef.current = false;
-      
-      if (processingTimerRef.current) {
-        cancelAnimationFrame(processingTimerRef.current);
-        processingTimerRef.current = null;
-      }
-      if (requestIdRef.current) {
-        cancelAnimationFrame(requestIdRef.current);
-        requestIdRef.current = null;
-      }
-    };
   }, []);
 
-  // Setup CO2 updating at regular intervals
+  // Setup CO2 updating at regular intervals with proper cleanup
   useEffect(() => {
-    const co2UpdateInterval = window.setInterval(() => {
-      if (objectDetectionEnabled && isMountedRef.current) {
-        updateCO2Savings();
-      }
-    }, 2000); // Update CO2 every 2 seconds when detection is active
+    if (!isMountedRef.current) return;
+    
+    // Clear any existing interval first
+    if (co2UpdateIntervalRef.current) {
+      clearInterval(co2UpdateIntervalRef.current);
+      co2UpdateIntervalRef.current = null;
+    }
+    
+    if (objectDetectionEnabled) {
+      co2UpdateIntervalRef.current = window.setInterval(() => {
+        if (isMountedRef.current) {
+          updateCO2Savings();
+        }
+      }, 2000);
+    }
 
     return () => {
-      // Clean up
-      clearInterval(co2UpdateInterval);
+      if (co2UpdateIntervalRef.current) {
+        clearInterval(co2UpdateIntervalRef.current);
+        co2UpdateIntervalRef.current = null;
+      }
     };
   }, [objectDetectionEnabled, updateCO2Savings]);
 
-  // Function to trigger emergency mode manually
+  // Function to trigger emergency mode manually with improved safety checks
   const triggerEmergencyMode = () => {
-    if (emergencyMode || !isMountedRef.current) return; // Don't trigger if already in emergency mode or unmounted
+    if (emergencyMode || !isMountedRef.current) return;
     
     setEmergencyMode(true);
     
@@ -210,7 +226,7 @@ export const useObjectDetection = () => {
     });
     
     // Only dispatch the event once to avoid React reconciliation issues
-    if (!emergencyEventDispatched.current) {
+    if (!emergencyEventDispatched.current && isMountedRef.current) {
       emergencyEventDispatched.current = true;
       
       // Use setTimeout to ensure DOM is in a stable state before dispatching event
@@ -253,7 +269,7 @@ export const useObjectDetection = () => {
             }
           }, 1000);
         }, 20000);
-      }, 300); // Small delay to ensure DOM stability
+      }, 300);
     }
   };
 
@@ -298,21 +314,18 @@ export const useObjectDetection = () => {
       results.pois = nearbyHospitals;
     }
     
-    // Update immediately for better performance, just throttle UI updates
-    // Don't block detection processing with UI updates
-    if (now - lastDetectionTime.current > 50) { // More frequent updates for real-time
+    // Throttle UI updates for better performance
+    if (now - lastDetectionTime.current > 50 && isMountedRef.current) { // More frequent updates for real-time
       lastDetectionTime.current = now;
       
-      if (isMountedRef.current) {
-        if (filteredObjects && Array.isArray(filteredObjects)) {
-          // Update detected objects in navigation context
-          updateDetectedObjects(filteredObjects);
-        }
-        
-        if (results.lanes) {
-          // Update lane offset in navigation context
-          updateLaneOffset(results.lanes);
-        }
+      if (filteredObjects && Array.isArray(filteredObjects)) {
+        // Update detected objects in navigation context
+        updateDetectedObjects(filteredObjects);
+      }
+      
+      if (results.lanes) {
+        // Update lane offset in navigation context
+        updateLaneOffset(results.lanes);
       }
     }
   };
@@ -359,4 +372,3 @@ export const useObjectDetection = () => {
     triggerEmergencyMode
   };
 };
-

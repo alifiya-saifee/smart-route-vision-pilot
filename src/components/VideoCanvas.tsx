@@ -34,9 +34,51 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hospitalsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
+  // Track component mount state and clean up all resources
+  // This needs to be the first effect to set up the mount flag
+  useEffect(() => {
+    isComponentMounted.current = true;
+    
+    return () => {
+      // Signal component is unmounted to prevent further state updates
+      isComponentMounted.current = false;
+      
+      // Clear all timers and animations to prevent memory leaks
+      if (timeIntervalRef.current) {
+        clearInterval(timeIntervalRef.current);
+        timeIntervalRef.current = null;
+      }
+      
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+      
+      if (emergencyTimeoutRef.current) {
+        clearTimeout(emergencyTimeoutRef.current);
+        emergencyTimeoutRef.current = null;
+      }
+      
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current);
+        recordingTimeoutRef.current = null;
+      }
+      
+      if (hospitalsTimeoutRef.current) {
+        clearTimeout(hospitalsTimeoutRef.current);
+        hospitalsTimeoutRef.current = null;
+      }
+      
+      // Remove any event listeners
+      window.removeEventListener('emergency-detected', handleEmergencyEvent);
+    };
+  }, []);
+  
   // Initialize canvas size when video dimensions are available
   // Using useLayoutEffect to ensure canvas is sized before painting
   useLayoutEffect(() => {
+    if (!isComponentMounted.current) return;
+    
     const videoElement = videoRef.current;
     const canvas = canvasRef.current;
     
@@ -49,14 +91,18 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   
   // Update time display
   useEffect(() => {
+    if (!isComponentMounted.current) return;
+    
     // Clear any existing interval first to prevent duplicates
     if (timeIntervalRef.current) {
       clearInterval(timeIntervalRef.current);
+      timeIntervalRef.current = null;
     }
 
     // Set up new interval
     timeIntervalRef.current = setInterval(() => {
       if (!isComponentMounted.current) return;
+      
       const now = new Date();
       setTimeDisplay(now.toLocaleTimeString());
     }, 1000);
@@ -69,27 +115,12 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     };
   }, []);
   
-  // Track component mount state and clean up all resources
-  useEffect(() => {
-    isComponentMounted.current = true;
-    
-    return () => {
-      // Signal component is unmounted to prevent further state updates
-      isComponentMounted.current = false;
-      
-      // Clear all timers and animations to prevent memory leaks
-      if (timeIntervalRef.current) clearInterval(timeIntervalRef.current);
-      if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
-      if (emergencyTimeoutRef.current) clearTimeout(emergencyTimeoutRef.current);
-      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
-      if (hospitalsTimeoutRef.current) clearTimeout(hospitalsTimeoutRef.current);
-    };
-  }, []);
-  
   // Set up FPS counter and emergency mode handling
   useEffect(() => {
+    if (!isComponentMounted.current) return;
+    
     if (!objectDetectionEnabled) {
-      if (isRecording) {
+      if (isRecording && isComponentMounted.current) {
         setIsRecording(false);
       }
       // Clean up animation frame if detection is disabled
@@ -140,8 +171,10 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     // Remove any existing emergency event listeners to prevent duplicates
     window.removeEventListener('emergency-detected', handleEmergencyEvent);
     
-    // Add the event listener
-    window.addEventListener('emergency-detected', handleEmergencyEvent);
+    // Add the event listener only if component is mounted
+    if (isComponentMounted.current) {
+      window.addEventListener('emergency-detected', handleEmergencyEvent);
+    }
     
     // Cleanup
     return () => {
@@ -155,6 +188,9 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   
   // Handle emergency events safely
   const handleEmergencyEvent = (e: Event) => {
+    // Prevent actions if component is unmounted
+    if (!isComponentMounted.current) return;
+    
     // Prevent duplicate events
     if (emergencyEventHandled.current) return;
     emergencyEventHandled.current = true;
@@ -162,11 +198,8 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     const customEvent = e as CustomEvent;
     console.log('Emergency detected, starting recording', customEvent.detail);
     
-    // Ensure component is still mounted before updating state
-    if (!isComponentMounted.current) return;
-    
-    // Ensure we're in a safe state to update React state
-    // Use setTimeout to push updates to next tick for better stability
+    // We'll use setTimeout with zero delay to push this to the next tick
+    // This helps avoid React state update race conditions
     setTimeout(() => {
       if (!isComponentMounted.current) return;
       
@@ -206,12 +239,14 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
 
   return (
     <>
-      <canvas
-        ref={canvasRef}
-        className={`absolute top-0 left-0 w-full h-full object-cover ${
-          objectDetectionEnabled ? 'opacity-100' : 'opacity-0'
-        }`}
-      />
+      {canvasRef && (
+        <canvas
+          ref={canvasRef}
+          className={`absolute top-0 left-0 w-full h-full object-cover ${
+            objectDetectionEnabled ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      )}
       
       {/* FPS counter, time and recording indicator */}
       {objectDetectionEnabled && (
@@ -244,7 +279,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       )}
       
       {/* Emergency alert overlay */}
-      {emergencyActive && (
+      {emergencyActive && isComponentMounted.current && (
         <div className="absolute inset-0 border-4 border-red-600 animate-pulse pointer-events-none">
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600/90 text-white px-4 py-2 rounded-full text-lg font-bold">
             EMERGENCY RECORDING
@@ -253,7 +288,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       )}
       
       {/* Hospital or emergency services indicators */}
-      {objectDetectionEnabled && nearbyHospitals.length > 0 && (
+      {objectDetectionEnabled && nearbyHospitals.length > 0 && isComponentMounted.current && (
         <div className="absolute bottom-4 left-4 flex flex-col gap-2">
           {nearbyHospitals.map((hospital, index) => (
             <EmergencyServiceIndicator 
@@ -267,7 +302,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       )}
       
       {/* Regular POI indicators when detected (only show when not in emergency mode) */}
-      {objectDetectionEnabled && nearbyHospitals.length === 0 && (
+      {objectDetectionEnabled && nearbyHospitals.length === 0 && isComponentMounted.current && (
         <div className="absolute bottom-4 right-4 flex flex-col gap-2">
           <PointOfInterestIndicator type="hospital" distance="1.2km" direction="ahead" />
           <PointOfInterestIndicator type="gas" distance="0.8km" direction="right" />
@@ -312,10 +347,10 @@ const PointOfInterestIndicator = ({
   distance: string; 
   direction: string 
 }) => {
-  // Only show POIs with random probability to simulate detection
-  const shouldShow = Math.random() > 0.5;
+  // Use a ref to ensure the random value is stable across renders
+  const shouldShowRef = useRef(Math.random() > 0.5);
   
-  if (!shouldShow) return null;
+  if (!shouldShowRef.current) return null;
   
   let bgColor = "bg-blue-500/80";
   let icon = "🏢";

@@ -2,7 +2,6 @@
 import React, { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Upload, Camera, CameraOff, Hospital, BarChart2 } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -38,32 +37,53 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   const { toast } = useToast();
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [thresholdPopoverOpen, setThresholdPopoverOpen] = useState(false);
+  const [isActionInProgress, setIsActionInProgress] = useState(false);
 
-  // Debounce function to prevent rapid clicks
-  const debounce = (func: Function, delay = 500) => {
+  // Debounce function to prevent rapid clicks with loading state
+  const debounce = (func: Function, delay = 800) => {
     return (...args: any[]) => {
-      if (clickTimerRef.current) {
-        clearTimeout(clickTimerRef.current);
+      if (clickTimerRef.current || isActionInProgress) {
+        return;
       }
       
+      setIsActionInProgress(true);
+      
+      // Execute function after brief delay to prevent race conditions
       clickTimerRef.current = setTimeout(() => {
         func(...args);
+        
+        // Reset after a slightly longer delay to prevent rapid clicking
+        setTimeout(() => {
+          setIsActionInProgress(false);
+          clickTimerRef.current = null;
+        }, 300);
       }, delay);
     };
   };
 
   const triggerFileInput = () => {
-    fileInputRef.current?.click();
+    if (!isActionInProgress && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      onFileUpload(file);
-      // Reset the input value after handling the file
-      if (event.target) {
-        event.target.value = '';
-      }
+    if (file && !isActionInProgress) {
+      setIsActionInProgress(true);
+      
+      setTimeout(() => {
+        onFileUpload(file);
+        
+        // Reset the input value after handling the file
+        if (event.target) {
+          event.target.value = '';
+        }
+        
+        setTimeout(() => {
+          setIsActionInProgress(false);
+        }, 500);
+      }, 100);
     }
   };
   
@@ -89,15 +109,34 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   });
   
   const handleThresholdChange = (value: number[]) => {
-    if (setConfidenceThreshold) {
-      setConfidenceThreshold(value[0]);
-      toast({
-        title: "Detection Threshold Updated",
-        description: `Now showing objects with ${Math.round(value[0] * 100)}% confidence or higher`,
-        variant: "default"
-      });
+    if (setConfidenceThreshold && !isActionInProgress) {
+      setIsActionInProgress(true);
+      
+      setTimeout(() => {
+        setConfidenceThreshold(value[0]);
+        
+        toast({
+          title: "Detection Threshold Updated",
+          description: `Now showing objects with ${Math.round(value[0] * 100)}% confidence or higher`,
+          variant: "default"
+        });
+        
+        setTimeout(() => {
+          setIsActionInProgress(false);
+        }, 300);
+      }, 100);
     }
   };
+
+  // Clean up timers when component unmounts
+  React.useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <>
@@ -109,7 +148,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
             variant={isCameraActive ? "destructive" : "secondary"} 
             size="sm" 
             className={`${isCameraActive ? "" : "bg-black/50 hover:bg-black/70"} flex items-center`}
-            disabled={!toggleCameraStream}
+            disabled={!toggleCameraStream || isActionInProgress}
           >
             {isCameraActive ? (
               <>
@@ -130,7 +169,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
           variant="secondary" 
           size="sm" 
           className="bg-black/50 hover:bg-black/70"
-          disabled={isCameraActive}
+          disabled={isCameraActive || isActionInProgress}
         >
           <Upload className="mr-2 h-4 w-4" />
           Upload Video
@@ -141,17 +180,22 @@ const VideoControls: React.FC<VideoControlsProps> = ({
           variant={objectDetectionEnabled ? "destructive" : "secondary"}
           size="sm" 
           className={objectDetectionEnabled ? "" : "bg-black/50 hover:bg-black/70"}
+          disabled={isActionInProgress}
         >
           {objectDetectionEnabled ? "Disable Detection" : "Enable Detection"}
         </Button>
 
         {objectDetectionEnabled && setConfidenceThreshold && (
-          <Popover open={thresholdPopoverOpen} onOpenChange={setThresholdPopoverOpen}>
+          <Popover 
+            open={thresholdPopoverOpen} 
+            onOpenChange={(open) => !isActionInProgress && setThresholdPopoverOpen(open)}
+          >
             <PopoverTrigger asChild>
               <Button 
                 variant="secondary" 
                 size="sm" 
                 className="bg-black/50 hover:bg-black/70"
+                disabled={isActionInProgress}
               >
                 <BarChart2 className="mr-2 h-4 w-4" />
                 {Math.round(confidenceThreshold * 100)}% Threshold
@@ -171,6 +215,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
                   value={[confidenceThreshold]}
                   onValueChange={handleThresholdChange}
                   className="my-2"
+                  disabled={isActionInProgress}
                 />
                 <div className="flex justify-between text-xs text-gray-500">
                   <span>0%</span>
@@ -188,6 +233,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
             variant="destructive"
             size="sm"
             className="bg-red-500 hover:bg-red-600"
+            disabled={isActionInProgress}
           >
             <Hospital className="mr-2 h-4 w-4" />
             Emergency

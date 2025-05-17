@@ -40,8 +40,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const { toast } = useToast();
   const [isUpdatingVideo, setIsUpdatingVideo] = useState(false);
   const isMountedRef = useRef<boolean>(true);
+  const pendingOperationRef = useRef<boolean>(false);
 
+  // Handle saving the map API key
   const handleSaveMapApiKey = useCallback(() => {
+    if (!isMountedRef.current) return;
+    
     localStorage.setItem('mapApiKey', mapApiKey);
     setShowMapApiInput(false);
     toast({
@@ -60,62 +64,60 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
 
   // Safe camera toggle with debouncing to prevent race conditions
   const safeToggleCameraStream = useCallback(() => {
-    if (!isMountedRef.current || isUpdatingVideo) return;
+    if (!isMountedRef.current || isUpdatingVideo || pendingOperationRef.current) return;
     
-    // Set updating flag to prevent multiple toggles
+    // Set flags to prevent multiple toggles
     setIsUpdatingVideo(true);
+    pendingOperationRef.current = true;
     
-    // Delay toggle to ensure React has finished rendering
-    const toggleTimeout = setTimeout(() => {
+    // Wrap in setTimeout to ensure React has finished rendering
+    setTimeout(() => {
       if (!isMountedRef.current) return;
       
       toggleCameraStream();
       
-      // Reset updating flag after a delay
-      const resetTimeout = setTimeout(() => {
+      // Reset flags after a delay
+      setTimeout(() => {
         if (isMountedRef.current) {
           setIsUpdatingVideo(false);
+          pendingOperationRef.current = false;
         }
-      }, 500);
-      
-      return () => clearTimeout(resetTimeout);
-    }, 100); // Increased delay for better stability
-    
-    return () => clearTimeout(toggleTimeout);
+      }, 800); // Increased delay for better stability
+    }, 100);
   }, [toggleCameraStream, isUpdatingVideo]);
 
   // Safe file upload with debouncing to prevent race conditions
   const safeHandleFileUpload = useCallback((file: File) => {
-    if (!isMountedRef.current || isUpdatingVideo) return;
+    if (!isMountedRef.current || isUpdatingVideo || pendingOperationRef.current) return;
     
-    // Set updating flag to prevent multiple uploads
+    // Set flags to prevent multiple uploads
     setIsUpdatingVideo(true);
+    pendingOperationRef.current = true;
     
-    // Delay upload to ensure React has finished rendering
-    const uploadTimeout = setTimeout(() => {
+    // Wrap in setTimeout to ensure React has finished rendering
+    setTimeout(() => {
       if (!isMountedRef.current) return;
       
       handleFileUpload(file);
       
-      // Reset updating flag after a delay
-      const resetTimeout = setTimeout(() => {
+      // Reset flags after a delay
+      setTimeout(() => {
         if (isMountedRef.current) {
           setIsUpdatingVideo(false);
+          pendingOperationRef.current = false;
         }
-      }, 500);
-      
-      return () => clearTimeout(resetTimeout);
-    }, 100); // Increased delay for better stability
-    
-    return () => clearTimeout(uploadTimeout);
+      }, 800);
+    }, 100);
   }, [handleFileUpload, isUpdatingVideo]);
 
   // Ensure video keeps playing when tab regains focus with error handling and debouncing
   useEffect(() => {
+    if (!isMountedRef.current) return;
+    
     let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const handleVisibilityChange = () => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || pendingOperationRef.current) return;
       
       // Clear any pending timeout
       if (visibilityTimeout) {
@@ -124,7 +126,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       }
       
       if (document.visibilityState === 'visible' && videoRef.current && !isCameraActive) {
-        // Add a slight delay before attempting to play to ensure DOM is ready
+        // Add a delay before attempting to play to ensure DOM is ready
         visibilityTimeout = setTimeout(() => {
           if (!isMountedRef.current || !videoRef.current) return;
           
@@ -133,7 +135,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
           });
           
           visibilityTimeout = null;
-        }, 200); // Longer delay for better stability
+        }, 300);
       }
     };
 
@@ -146,34 +148,37 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       
       if (visibilityTimeout) {
         clearTimeout(visibilityTimeout);
+        visibilityTimeout = null;
       }
-      
-      isMountedRef.current = false;
     };
   }, [videoRef, isCameraActive]);
 
   return (
     <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}>
-      {/* Main video element */}
-      <video
-        ref={videoRef}
-        src={!isCameraActive ? videoSrc : undefined}
-        loop={!isCameraActive}
-        muted
-        playsInline
-        autoPlay
-        className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
-        key={isCameraActive ? 'camera' : videoSrc} // Add key to force remounting
-      />
+      {/* Main video element - Add key for proper remounting */}
+      {videoRef && (
+        <video
+          ref={videoRef}
+          src={!isCameraActive ? videoSrc : undefined}
+          loop={!isCameraActive}
+          muted
+          playsInline
+          autoPlay
+          className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+          key={`video-${isCameraActive ? 'camera' : videoSrc}`}
+        />
+      )}
       
       {/* Canvas overlay for object detection */}
-      <VideoCanvas 
-        canvasRef={canvasRef}
-        videoRef={videoRef} 
-        objectDetectionEnabled={objectDetectionEnabled}
-        onToggleCamera={safeToggleCameraStream}
-        isCameraActive={isCameraActive}
-      />
+      {videoRef && canvasRef && (
+        <VideoCanvas 
+          canvasRef={canvasRef}
+          videoRef={videoRef} 
+          objectDetectionEnabled={objectDetectionEnabled}
+          onToggleCamera={safeToggleCameraStream}
+          isCameraActive={isCameraActive}
+        />
+      )}
       
       {/* Loading/error states */}
       {!isLoaded && (
