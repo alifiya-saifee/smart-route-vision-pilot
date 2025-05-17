@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
@@ -42,8 +43,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const isMountedRef = useRef<boolean>(true);
   const pendingOperationRef = useRef<boolean>(false);
   const unmountingRef = useRef<boolean>(false);
+  const safeOperationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Handle saving the map API key
+  // Handle saving the map API key with debounce
   const handleSaveMapApiKey = useCallback(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
     
@@ -61,14 +63,21 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     unmountingRef.current = false;
     
     return () => {
-      // Set unmounting flag before the mounted flag
-      // This helps prevent race conditions during cleanup
+      // Signal component is unmounting
       unmountingRef.current = true;
+      
+      // Clean up any pending timeouts
+      if (safeOperationTimeoutRef.current) {
+        clearTimeout(safeOperationTimeoutRef.current);
+        safeOperationTimeoutRef.current = null;
+      }
+      
+      // Finally set mounted flag to false
       isMountedRef.current = false;
     };
   }, []);
 
-  // Safe camera toggle with debouncing to prevent race conditions
+  // Safe camera toggle with improved debouncing and state management
   const safeToggleCameraStream = useCallback(() => {
     if (!isMountedRef.current || unmountingRef.current || isUpdatingVideo || pendingOperationRef.current) return;
     
@@ -76,23 +85,35 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     setIsUpdatingVideo(true);
     pendingOperationRef.current = true;
     
-    // Wrap in setTimeout to ensure React has finished rendering
-    setTimeout(() => {
+    // Use Promise-based approach for better control flow
+    Promise.resolve().then(() => {
       if (!isMountedRef.current || unmountingRef.current) return;
       
+      // Call the actual toggle function
       toggleCameraStream();
       
-      // Reset flags after a delay
-      setTimeout(() => {
-        if (isMountedRef.current && !unmountingRef.current) {
-          setIsUpdatingVideo(false);
-          pendingOperationRef.current = false;
-        }
-      }, 800); // Increased delay for better stability
-    }, 100);
+      // Return a promise that resolves after a delay
+      return new Promise<void>(resolve => {
+        safeOperationTimeoutRef.current = setTimeout(() => {
+          resolve();
+        }, 800);
+      });
+    }).then(() => {
+      if (isMountedRef.current && !unmountingRef.current) {
+        setIsUpdatingVideo(false);
+        pendingOperationRef.current = false;
+      }
+    }).catch(error => {
+      console.error("Error toggling camera:", error);
+      // Reset state on error
+      if (isMountedRef.current && !unmountingRef.current) {
+        setIsUpdatingVideo(false);
+        pendingOperationRef.current = false;
+      }
+    });
   }, [toggleCameraStream, isUpdatingVideo]);
 
-  // Safe file upload with debouncing to prevent race conditions
+  // Safe file upload with improved safety and error handling
   const safeHandleFileUpload = useCallback((file: File) => {
     if (!isMountedRef.current || unmountingRef.current || isUpdatingVideo || pendingOperationRef.current) return;
     
@@ -100,23 +121,35 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     setIsUpdatingVideo(true);
     pendingOperationRef.current = true;
     
-    // Wrap in setTimeout to ensure React has finished rendering
-    setTimeout(() => {
+    // Use Promise-based approach
+    Promise.resolve().then(() => {
       if (!isMountedRef.current || unmountingRef.current) return;
       
+      // Handle the file upload
       handleFileUpload(file);
       
-      // Reset flags after a delay
-      setTimeout(() => {
-        if (isMountedRef.current && !unmountingRef.current) {
-          setIsUpdatingVideo(false);
-          pendingOperationRef.current = false;
-        }
-      }, 800);
-    }, 100);
+      // Return a promise that resolves after a delay
+      return new Promise<void>(resolve => {
+        safeOperationTimeoutRef.current = setTimeout(() => {
+          resolve();
+        }, 800);
+      });
+    }).then(() => {
+      if (isMountedRef.current && !unmountingRef.current) {
+        setIsUpdatingVideo(false);
+        pendingOperationRef.current = false;
+      }
+    }).catch(error => {
+      console.error("Error handling file upload:", error);
+      // Reset state on error
+      if (isMountedRef.current && !unmountingRef.current) {
+        setIsUpdatingVideo(false);
+        pendingOperationRef.current = false;
+      }
+    });
   }, [handleFileUpload, isUpdatingVideo]);
 
-  // Ensure video keeps playing when tab regains focus with error handling and debouncing
+  // Handle visibility changes safely 
   useEffect(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
     
@@ -159,13 +192,15 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     };
   }, [videoRef, isCameraActive]);
 
-  // Use key attribute to force remounting of components when core props change
-  const videoCanvasKey = `video-canvas-${isCameraActive ? 'camera' : videoSrc}-${objectDetectionEnabled}`;
-  const videoControlsKey = `video-controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled}`;
+  // Create stable keys for elements to help React with reconciliation
+  // Use a combination of state values that would require a re-render
+  const videoKey = `video-${isCameraActive ? 'camera' : `file-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1)}`}`;
+  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
+  const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
 
   return (
     <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}>
-      {/* Main video element - Add key for proper remounting */}
+      {/* Video element with stable key */}
       {videoRef && (
         <video
           ref={videoRef}
@@ -175,12 +210,12 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
           playsInline
           autoPlay
           className={`w-full h-full object-cover ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
-          key={`video-${isCameraActive ? 'camera' : videoSrc}`}
+          key={videoKey}
         />
       )}
       
-      {/* Canvas overlay for object detection */}
-      {videoRef && canvasRef && (
+      {/* Canvas overlay with stable key */}
+      {videoRef && canvasRef && isLoaded && (
         <VideoCanvas 
           key={videoCanvasKey}
           canvasRef={canvasRef}
@@ -220,7 +255,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         />
       )}
 
-      {/* Video controls */}
+      {/* Video controls with stable key */}
       <VideoControls
         key={videoControlsKey}
         onFileUpload={safeHandleFileUpload}
