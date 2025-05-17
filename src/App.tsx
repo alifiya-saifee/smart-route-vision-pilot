@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useEffect } from "react";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import { NavigationProvider } from './context/NavigationContext';
 
 // Create a stable query client instance outside of component rendering
 const queryClient = new QueryClient({
@@ -36,15 +37,17 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-        {/* Render toasters after route components to ensure they have proper context */}
-        <Toaster />
-        <Sonner />
+        <NavigationProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+          {/* Render toasters after route components to ensure they have proper context */}
+          <Toaster />
+          <Sonner />
+        </NavigationProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

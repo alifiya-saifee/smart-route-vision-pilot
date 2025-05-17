@@ -25,8 +25,8 @@ const clearToasts = () => {
   try {
     requestAnimationFrame(() => {
       try {
-        // Get the toast context and clear all toasts
-        const { toasts, dismiss } = useToast.getState();
+        // Get the toast context values directly - don't use getState which doesn't exist
+        const { toasts, dismiss } = useToast();
         if (toasts && dismiss) {
           toasts.forEach(t => {
             if (t.id) dismiss(t.id);
