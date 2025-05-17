@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { useVideoProcessing } from '@/hooks/useVideoProcessing';
@@ -59,9 +58,9 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     };
   }, []);
 
-  // Safe camera toggle that prevents race conditions
+  // Safe camera toggle with debouncing to prevent race conditions
   const safeToggleCameraStream = useCallback(() => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || isUpdatingVideo) return;
     
     // Set updating flag to prevent multiple toggles
     setIsUpdatingVideo(true);
@@ -80,14 +79,14 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       }, 500);
       
       return () => clearTimeout(resetTimeout);
-    }, 50);
+    }, 100); // Increased delay for better stability
     
     return () => clearTimeout(toggleTimeout);
-  }, [toggleCameraStream]);
+  }, [toggleCameraStream, isUpdatingVideo]);
 
-  // Safe file upload that prevents race conditions
+  // Safe file upload with debouncing to prevent race conditions
   const safeHandleFileUpload = useCallback((file: File) => {
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current || isUpdatingVideo) return;
     
     // Set updating flag to prevent multiple uploads
     setIsUpdatingVideo(true);
@@ -106,29 +105,35 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       }, 500);
       
       return () => clearTimeout(resetTimeout);
-    }, 50);
+    }, 100); // Increased delay for better stability
     
     return () => clearTimeout(uploadTimeout);
-  }, [handleFileUpload]);
+  }, [handleFileUpload, isUpdatingVideo]);
 
-  // Ensure video keeps playing when tab regains focus with error handling
+  // Ensure video keeps playing when tab regains focus with error handling and debouncing
   useEffect(() => {
+    let visibilityTimeout: ReturnType<typeof setTimeout> | null = null;
+
     const handleVisibilityChange = () => {
       if (!isMountedRef.current) return;
       
+      // Clear any pending timeout
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        visibilityTimeout = null;
+      }
+      
       if (document.visibilityState === 'visible' && videoRef.current && !isCameraActive) {
         // Add a slight delay before attempting to play to ensure DOM is ready
-        const playTimeout = setTimeout(() => {
-          if (!isMountedRef.current) return;
+        visibilityTimeout = setTimeout(() => {
+          if (!isMountedRef.current || !videoRef.current) return;
           
-          if (videoRef.current) {
-            videoRef.current.play().catch(error => {
-              console.error("Error playing video:", error);
-            });
-          }
-        }, 100);
-        
-        return () => clearTimeout(playTimeout);
+          videoRef.current.play().catch(error => {
+            console.error("Error playing video:", error);
+          });
+          
+          visibilityTimeout = null;
+        }, 200); // Longer delay for better stability
       }
     };
 
@@ -138,6 +143,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
+      
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+      }
+      
       isMountedRef.current = false;
     };
   }, [videoRef, isCameraActive]);

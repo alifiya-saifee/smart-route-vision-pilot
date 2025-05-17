@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+
+import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { Clock, Camera, CameraOff, Hospital } from 'lucide-react';
 
 interface VideoCanvasProps {
@@ -27,12 +28,15 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   const [nearbyHospitals, setNearbyHospitals] = useState<any[]>([]);
   const emergencyEventHandled = useRef<boolean>(false);
   const isComponentMounted = useRef<boolean>(true);
+  const timeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const animationFrameIdRef = useRef<number | null>(null);
   const emergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hospitalsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Initialize canvas size when video dimensions are available
-  useEffect(() => {
+  // Using useLayoutEffect to ensure canvas is sized before painting
+  useLayoutEffect(() => {
     const videoElement = videoRef.current;
     const canvas = canvasRef.current;
     
@@ -45,25 +49,37 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
   
   // Update time display
   useEffect(() => {
-    const timeInterval = setInterval(() => {
+    // Clear any existing interval first to prevent duplicates
+    if (timeIntervalRef.current) {
+      clearInterval(timeIntervalRef.current);
+    }
+
+    // Set up new interval
+    timeIntervalRef.current = setInterval(() => {
       if (!isComponentMounted.current) return;
       const now = new Date();
       setTimeDisplay(now.toLocaleTimeString());
     }, 1000);
     
     return () => {
-      clearInterval(timeInterval);
+      if (timeIntervalRef.current) {
+        clearInterval(timeIntervalRef.current);
+        timeIntervalRef.current = null;
+      }
     };
   }, []);
   
-  // Track component mount state
+  // Track component mount state and clean up all resources
   useEffect(() => {
     isComponentMounted.current = true;
     
     return () => {
+      // Signal component is unmounted to prevent further state updates
       isComponentMounted.current = false;
       
-      // Clear all timeouts on unmount to prevent memory leaks
+      // Clear all timers and animations to prevent memory leaks
+      if (timeIntervalRef.current) clearInterval(timeIntervalRef.current);
+      if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
       if (emergencyTimeoutRef.current) clearTimeout(emergencyTimeoutRef.current);
       if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
       if (hospitalsTimeoutRef.current) clearTimeout(hospitalsTimeoutRef.current);
@@ -76,10 +92,13 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       if (isRecording) {
         setIsRecording(false);
       }
+      // Clean up animation frame if detection is disabled
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
       return;
     }
-    
-    let animationFrameId: number | null = null;
     
     const calculateFps = () => {
       if (!isComponentMounted.current) return;
@@ -93,8 +112,8 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         const elapsed = (now - lastFpsUpdateRef.current) / 1000;
         fpsRef.current = Math.round(frameCountRef.current / elapsed);
         
-        // Update display if available
-        if (fpsDisplayRef.current) {
+        // Update display if available and component is mounted
+        if (fpsDisplayRef.current && isComponentMounted.current) {
           fpsDisplayRef.current.textContent = `${fpsRef.current} FPS ${isRecording ? '• REC' : ''}`;
         }
         
@@ -105,25 +124,50 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       
       // Only request next frame if component is still mounted
       if (isComponentMounted.current) {
-        animationFrameId = requestAnimationFrame(calculateFps);
+        animationFrameIdRef.current = requestAnimationFrame(calculateFps);
       }
     };
     
     // Start FPS calculation
     if (isComponentMounted.current) {
-      animationFrameId = requestAnimationFrame(calculateFps);
+      // Clean up existing animation frame first
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+      }
+      animationFrameIdRef.current = requestAnimationFrame(calculateFps);
     }
     
-    // Handle emergency event detection
-    const handleEmergencyEvent = (e: Event) => {
-      // Prevent duplicate events
-      if (emergencyEventHandled.current) return;
-      emergencyEventHandled.current = true;
-      
-      const customEvent = e as CustomEvent;
-      console.log('Emergency detected, starting recording', customEvent.detail);
-      
-      // Ensure component is still mounted before updating state
+    // Remove any existing emergency event listeners to prevent duplicates
+    window.removeEventListener('emergency-detected', handleEmergencyEvent);
+    
+    // Add the event listener
+    window.addEventListener('emergency-detected', handleEmergencyEvent);
+    
+    // Cleanup
+    return () => {
+      if (animationFrameIdRef.current !== null) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+      window.removeEventListener('emergency-detected', handleEmergencyEvent);
+    };
+  }, [objectDetectionEnabled, isRecording]);
+  
+  // Handle emergency events safely
+  const handleEmergencyEvent = (e: Event) => {
+    // Prevent duplicate events
+    if (emergencyEventHandled.current) return;
+    emergencyEventHandled.current = true;
+    
+    const customEvent = e as CustomEvent;
+    console.log('Emergency detected, starting recording', customEvent.detail);
+    
+    // Ensure component is still mounted before updating state
+    if (!isComponentMounted.current) return;
+    
+    // Ensure we're in a safe state to update React state
+    // Use setTimeout to push updates to next tick for better stability
+    setTimeout(() => {
       if (!isComponentMounted.current) return;
       
       // Update state safely
@@ -157,25 +201,8 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         }, 10000);
         
       }, 5000);
-    };
-    
-    // Add the event listener
-    window.addEventListener('emergency-detected', handleEmergencyEvent);
-    
-    // Cleanup
-    return () => {
-      if (animationFrameId !== null) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      window.removeEventListener('emergency-detected', handleEmergencyEvent);
-      isComponentMounted.current = false;
-      
-      // Clear all timeouts to prevent state updates after unmount
-      if (emergencyTimeoutRef.current) clearTimeout(emergencyTimeoutRef.current);
-      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
-      if (hospitalsTimeoutRef.current) clearTimeout(hospitalsTimeoutRef.current);
-    };
-  }, [objectDetectionEnabled, isRecording]);
+    }, 0);
+  };
 
   return (
     <>
