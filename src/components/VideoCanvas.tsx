@@ -86,10 +86,8 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         eventAttachedRef.current = false;
       }
       
-      // Reset states
-      setIsRecording(false);
-      setEmergencyActive(false);
-      setNearbyHospitals([]);
+      // Reset states - but don't trigger re-renders since we're unmounting
+      // This prevents any potential state updates during unmounting
     };
   }, []);
   
@@ -120,7 +118,9 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       
       // Clean up listener
       return () => {
-        videoElement.removeEventListener('loadedmetadata', handleVideoMetadata);
+        if (videoElement) {
+          videoElement.removeEventListener('loadedmetadata', handleVideoMetadata);
+        }
       };
     }
   }, [canvasRef, videoRef]);
@@ -247,7 +247,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         emergencyTimeoutRef.current = setTimeout(() => {
           if (!isComponentMounted.current) return;
           resolve();
-        }, 5000);
+        }, 5000) as unknown as NodeJS.Timeout;
       });
     }).then(() => {
       if (!isComponentMounted.current) return Promise.reject('Component unmounted');
@@ -261,7 +261,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
         recordingTimeoutRef.current = setTimeout(() => {
           if (!isComponentMounted.current) return;
           resolve();
-        }, 5000);
+        }, 5000) as unknown as NodeJS.Timeout;
       });
     }).then(() => {
       if (!isComponentMounted.current) return;
@@ -278,7 +278,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
           setNearbyHospitals([]);
           emergencyEventHandled.current = false; // Reset for future events
           resolve();
-        }, 2000);
+        }, 2000) as unknown as NodeJS.Timeout;
       });
     }).catch(error => {
       if (error !== 'Component unmounted') {
@@ -294,17 +294,12 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
     });
   };
 
-  // Use stable IDs for child elements to prevent reconciliation issues
-  const emergencyAlertId = "emergency-alert-overlay";
-  const poiContainerId = "poi-container";
-  const fpsCounterId = "fps-counter";
-  const timeDisplayId = "time-display";
-  const cameraButtonId = "camera-toggle-button";
-
+  // Add stable and unique keys for each element to prevent React reconciliation issues
   return (
     <>
       {canvasRef && (
         <canvas
+          key={`canvas-${isCameraActive ? 'camera' : 'video'}-${objectDetectionEnabled ? 'detection' : 'normal'}`}
           ref={canvasRef}
           className={`absolute top-0 left-0 w-full h-full object-cover ${
             objectDetectionEnabled ? 'opacity-100' : 'opacity-0'
@@ -315,11 +310,11 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       {/* FPS counter, time and recording indicator - with stable key */}
       {objectDetectionEnabled && (
         <div 
-          key={`video-hud-${isCameraActive ? 'camera' : 'video'}`}
+          key={`video-hud-${isCameraActive ? 'camera' : 'video'}-${isRecording ? 'recording' : 'normal'}`}
           className="absolute top-0 left-0 right-0 flex justify-between items-center bg-black/50 text-white px-2 py-1 text-xs"
         >
           <div
-            id={fpsCounterId}
+            id="fps-counter"
             ref={fpsDisplayRef}
             className={`${isRecording ? 'text-red-400' : 'text-green-400'} px-2 py-1 text-xs rounded font-mono flex items-center`}
           >
@@ -329,17 +324,18 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
             -- FPS
           </div>
           
-          <div id={timeDisplayId} className="flex items-center gap-2">
+          <div id="time-display" className="flex items-center gap-2">
             <Clock className="w-4 h-4" />
             <span>{timeDisplay}</span>
           </div>
           
           {onToggleCamera && (
             <button 
-              id={cameraButtonId}
+              id="camera-toggle-button"
               onClick={(e) => {
                 e.preventDefault();
-                if (onToggleCamera) onToggleCamera();
+                e.stopPropagation();
+                if (onToggleCamera && isComponentMounted.current) onToggleCamera();
               }}
               className="bg-blue-500/50 hover:bg-blue-600/70 rounded-full p-1"
               type="button"
@@ -353,7 +349,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       {/* Emergency alert overlay */}
       {emergencyActive && isComponentMounted.current && (
         <div 
-          id={emergencyAlertId}
+          key="emergency-alert"
           className="absolute inset-0 border-4 border-red-600 animate-pulse pointer-events-none"
         >
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-600/90 text-white px-4 py-2 rounded-full text-lg font-bold">
@@ -365,7 +361,7 @@ const VideoCanvas: React.FC<VideoCanvasProps> = ({
       {/* Hospital or emergency services indicators */}
       {objectDetectionEnabled && nearbyHospitals.length > 0 && isComponentMounted.current && (
         <div 
-          id={poiContainerId}
+          key="emergency-poi-container"
           className="absolute bottom-4 left-4 flex flex-col gap-2"
         >
           {nearbyHospitals.map((hospital, index) => (

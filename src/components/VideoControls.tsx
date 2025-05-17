@@ -1,5 +1,5 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Upload, Camera, CameraOff, Hospital, BarChart2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
@@ -38,11 +38,28 @@ const VideoControls: React.FC<VideoControlsProps> = ({
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [thresholdPopoverOpen, setThresholdPopoverOpen] = useState(false);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
+  const isMountedRef = useRef<boolean>(true);
+
+  // Track component mount state
+  useEffect(() => {
+    isMountedRef.current = true;
+    
+    return () => {
+      // First clean up any pending timers
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      
+      // Set mounted flag to false
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Debounce function to prevent rapid clicks with loading state
   const debounce = (func: Function, delay = 800) => {
     return (...args: any[]) => {
-      if (clickTimerRef.current || isActionInProgress) {
+      if (clickTimerRef.current || isActionInProgress || !isMountedRef.current) {
         return;
       }
       
@@ -50,93 +67,117 @@ const VideoControls: React.FC<VideoControlsProps> = ({
       
       // Execute function after brief delay to prevent race conditions
       clickTimerRef.current = setTimeout(() => {
-        func(...args);
+        if (!isMountedRef.current) return;
+        
+        try {
+          func(...args);
+        } catch (error) {
+          console.error("Action error:", error);
+        }
         
         // Reset after a slightly longer delay to prevent rapid clicking
-        setTimeout(() => {
-          setIsActionInProgress(false);
-          clickTimerRef.current = null;
-        }, 300);
-      }, delay);
+        if (isMountedRef.current) {
+          setTimeout(() => {
+            if (!isMountedRef.current) return;
+            setIsActionInProgress(false);
+            clickTimerRef.current = null;
+          }, 300);
+        }
+      }, delay) as unknown as NodeJS.Timeout;
     };
   };
 
   const triggerFileInput = () => {
-    if (!isActionInProgress && fileInputRef.current) {
+    if (!isActionInProgress && fileInputRef.current && isMountedRef.current) {
       fileInputRef.current.click();
     }
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && !isActionInProgress) {
+    if (file && !isActionInProgress && isMountedRef.current) {
       setIsActionInProgress(true);
       
       setTimeout(() => {
+        if (!isMountedRef.current) return;
+        
         onFileUpload(file);
         
         // Reset the input value after handling the file
-        if (event.target) {
+        if (event.target && isMountedRef.current) {
           event.target.value = '';
         }
         
-        setTimeout(() => {
-          setIsActionInProgress(false);
-        }, 500);
+        if (isMountedRef.current) {
+          setTimeout(() => {
+            if (!isMountedRef.current) return;
+            setIsActionInProgress(false);
+          }, 500);
+        }
       }, 100);
     }
   };
   
   const handleToggleCamera = debounce(() => {
-    if (toggleCameraStream) {
+    if (toggleCameraStream && isMountedRef.current) {
       toggleCameraStream();
     }
   });
   
   const handleEmergency = debounce(() => {
-    if (triggerEmergency) {
+    if (triggerEmergency && isMountedRef.current) {
       triggerEmergency();
-      toast({
-        title: "Emergency Mode Activated",
-        description: "Scanning for nearest emergency services",
-        variant: "destructive"
-      });
+      
+      if (isMountedRef.current) {
+        toast({
+          title: "Emergency Mode Activated",
+          description: "Scanning for nearest emergency services",
+          variant: "destructive"
+        });
+      }
     }
   });
   
   const handleToggleObjectDetection = debounce(() => {
-    toggleObjectDetection();
+    if (isMountedRef.current) {
+      toggleObjectDetection();
+    }
   });
   
   const handleThresholdChange = (value: number[]) => {
-    if (setConfidenceThreshold && !isActionInProgress) {
+    if (setConfidenceThreshold && !isActionInProgress && isMountedRef.current) {
       setIsActionInProgress(true);
       
       setTimeout(() => {
+        if (!isMountedRef.current) return;
+        
         setConfidenceThreshold(value[0]);
         
-        toast({
-          title: "Detection Threshold Updated",
-          description: `Now showing objects with ${Math.round(value[0] * 100)}% confidence or higher`,
-          variant: "default"
-        });
+        if (isMountedRef.current) {
+          toast({
+            title: "Detection Threshold Updated",
+            description: `Now showing objects with ${Math.round(value[0] * 100)}% confidence or higher`,
+            variant: "default"
+          });
+        }
         
-        setTimeout(() => {
-          setIsActionInProgress(false);
-        }, 300);
+        if (isMountedRef.current) {
+          setTimeout(() => {
+            if (!isMountedRef.current) return;
+            setIsActionInProgress(false);
+          }, 300);
+        }
       }, 100);
     }
   };
 
-  // Clean up timers when component unmounts
-  React.useEffect(() => {
-    return () => {
-      if (clickTimerRef.current) {
-        clearTimeout(clickTimerRef.current);
-        clickTimerRef.current = null;
-      }
-    };
-  }, []);
+  // Create stable ID keys for child elements
+  const uploadButtonId = "upload-video-button";
+  const detectionButtonId = "toggle-detection-button";
+  const thresholdButtonId = "threshold-settings-button";
+  const emergencyButtonId = "emergency-button";
+  const processingId = "processing-indicator";
+  const statusId = "detection-status";
 
   return (
     <>
@@ -165,6 +206,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         )}
         
         <Button 
+          id={uploadButtonId}
           onClick={triggerFileInput} 
           variant="secondary" 
           size="sm" 
@@ -176,6 +218,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         </Button>
         
         <Button 
+          id={detectionButtonId}
           onClick={handleToggleObjectDetection}
           variant={objectDetectionEnabled ? "destructive" : "secondary"}
           size="sm" 
@@ -188,10 +231,11 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         {objectDetectionEnabled && setConfidenceThreshold && (
           <Popover 
             open={thresholdPopoverOpen} 
-            onOpenChange={(open) => !isActionInProgress && setThresholdPopoverOpen(open)}
+            onOpenChange={(open) => !isActionInProgress && isMountedRef.current && setThresholdPopoverOpen(open)}
           >
             <PopoverTrigger asChild>
               <Button 
+                id={thresholdButtonId}
                 variant="secondary" 
                 size="sm" 
                 className="bg-black/50 hover:bg-black/70"
@@ -229,6 +273,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
         
         {objectDetectionEnabled && triggerEmergency && (
           <Button 
+            id={emergencyButtonId}
             onClick={handleEmergency}
             variant="destructive"
             size="sm"
@@ -251,7 +296,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
       
       {/* Processing indicator - show real-time status */}
       {processing && objectDetectionEnabled && (
-        <div className="absolute bottom-4 left-4 bg-black/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
+        <div id={processingId} className="absolute bottom-4 left-4 bg-black/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
           <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
           Real-time detection: frame {detectFrameCount}
         </div>
@@ -259,7 +304,7 @@ const VideoControls: React.FC<VideoControlsProps> = ({
       
       {/* Detection status indicator */}
       {objectDetectionEnabled && isLoaded && (
-        <div className="absolute bottom-4 right-4 bg-green-600/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
+        <div id={statusId} className="absolute bottom-4 right-4 bg-green-600/70 px-3 py-1 rounded-full text-xs text-white flex items-center">
           <div className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></div>
           Traffic Detection Active {confidenceThreshold && `(${Math.round(confidenceThreshold * 100)}% threshold)`}
         </div>

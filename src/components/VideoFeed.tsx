@@ -44,6 +44,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const pendingOperationRef = useRef<boolean>(false);
   const unmountingRef = useRef<boolean>(false);
   const safeOperationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const visibilityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Handle saving the map API key with debounce
   const handleSaveMapApiKey = useCallback(() => {
@@ -72,6 +73,11 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         safeOperationTimeoutRef.current = null;
       }
       
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+        visibilityTimeoutRef.current = null;
+      }
+      
       // Finally set mounted flag to false
       isMountedRef.current = false;
     };
@@ -94,9 +100,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       
       // Return a promise that resolves after a delay
       return new Promise<void>(resolve => {
+        if (safeOperationTimeoutRef.current) {
+          clearTimeout(safeOperationTimeoutRef.current);
+        }
+        
         safeOperationTimeoutRef.current = setTimeout(() => {
           resolve();
-        }, 800);
+        }, 800) as unknown as NodeJS.Timeout;
       });
     }).then(() => {
       if (isMountedRef.current && !unmountingRef.current) {
@@ -130,9 +140,13 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       
       // Return a promise that resolves after a delay
       return new Promise<void>(resolve => {
+        if (safeOperationTimeoutRef.current) {
+          clearTimeout(safeOperationTimeoutRef.current);
+        }
+        
         safeOperationTimeoutRef.current = setTimeout(() => {
           resolve();
-        }, 800);
+        }, 800) as unknown as NodeJS.Timeout;
       });
     }).then(() => {
       if (isMountedRef.current && !unmountingRef.current) {
@@ -153,28 +167,26 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   useEffect(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
     
-    let visibilityTimeout: NodeJS.Timeout | null = null;
-
     const handleVisibilityChange = () => {
       if (!isMountedRef.current || unmountingRef.current || pendingOperationRef.current) return;
       
       // Clear any pending timeout
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        visibilityTimeout = null;
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+        visibilityTimeoutRef.current = null;
       }
       
       if (document.visibilityState === 'visible' && videoRef.current && !isCameraActive) {
         // Add a delay before attempting to play to ensure DOM is ready
-        visibilityTimeout = setTimeout(() => {
+        visibilityTimeoutRef.current = setTimeout(() => {
           if (!isMountedRef.current || unmountingRef.current || !videoRef.current) return;
           
           videoRef.current.play().catch(error => {
             console.error("Error playing video:", error);
           });
           
-          visibilityTimeout = null;
-        }, 300);
+          visibilityTimeoutRef.current = null;
+        }, 300) as unknown as NodeJS.Timeout;
       }
     };
 
@@ -185,17 +197,17 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
       
-      if (visibilityTimeout) {
-        clearTimeout(visibilityTimeout);
-        visibilityTimeout = null;
+      if (visibilityTimeoutRef.current) {
+        clearTimeout(visibilityTimeoutRef.current);
+        visibilityTimeoutRef.current = null;
       }
     };
   }, [videoRef, isCameraActive]);
 
   // Create stable keys for elements to help React with reconciliation
   // Use a combination of state values that would require a re-render
-  const videoKey = `video-${isCameraActive ? 'camera' : `file-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1)}`}`;
-  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
+  const videoKey = `video-${isCameraActive ? 'camera' : `file-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1)}`}-${isLoaded ? 'loaded' : 'loading'}`;
+  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${isLoaded ? 'loaded' : 'loading'}`;
   const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
 
   return (
