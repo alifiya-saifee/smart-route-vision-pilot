@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import DetectionService from '@/services/DetectionService';
 import VoiceAlertService from '@/services/VoiceAlertService';
@@ -26,24 +27,27 @@ export const useObjectDetection = () => {
   const emergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const resetEmergencyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const co2UpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
   // Track component mount state - this needs to be the first effect
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
+      // First set the flag to prevent any further operations
       isMountedRef.current = false;
       
-      // Clear all timeouts and intervals on unmount
-      if (processingTimerRef.current) {
-        cancelAnimationFrame(processingTimerRef.current);
-        processingTimerRef.current = null;
-      }
-      
+      // Explicitly cancel animations before clearing references
       if (requestIdRef.current) {
         cancelAnimationFrame(requestIdRef.current);
         requestIdRef.current = null;
       }
       
+      if (processingTimerRef.current) {
+        cancelAnimationFrame(processingTimerRef.current);
+        processingTimerRef.current = null;
+      }
+      
+      // Clear all timeouts and intervals on unmount
       if (emergencyTimeoutRef.current) {
         clearTimeout(emergencyTimeoutRef.current);
         emergencyTimeoutRef.current = null;
@@ -73,9 +77,12 @@ export const useObjectDetection = () => {
     }
     
     let frameCount = 0;
-    const videoElement = document.querySelector('video');
+    // Store video element reference but don't create a dependency
+    if (!videoElementRef.current) {
+      videoElementRef.current = document.querySelector('video');
+    }
     
-    if (!videoElement || !isMountedRef.current) {
+    if (!videoElementRef.current || !isMountedRef.current) {
       return;
     }
     
@@ -96,12 +103,12 @@ export const useObjectDetection = () => {
       setDetectFrameCount(frameCount);
       
       // Process frame if not already processing
-      if (!processing && isMountedRef.current) {
+      if (!processing && isMountedRef.current && videoElementRef.current) {
         setProcessing(true);
         
         // Use the DetectionService to process the current frame
         try {
-          DetectionService.processVideo(videoElement, canvas, (results) => {
+          DetectionService.processVideo(videoElementRef.current, canvas, (results) => {
             if (!isMountedRef.current) return;
             handleDetectionResults(results);
             // Immediately reset processing flag for better performance
@@ -136,6 +143,7 @@ export const useObjectDetection = () => {
       // Always cancel any existing animation frame before starting a new one
       if (requestIdRef.current) {
         cancelAnimationFrame(requestIdRef.current);
+        requestIdRef.current = null;
       }
       requestIdRef.current = requestAnimationFrame(processVideoFrame);
     }
@@ -206,7 +214,7 @@ export const useObjectDetection = () => {
   }, [objectDetectionEnabled, updateCO2Savings]);
 
   // Function to trigger emergency mode manually with improved safety checks
-  const triggerEmergencyMode = () => {
+  const triggerEmergencyMode = useCallback(() => {
     if (emergencyMode || !isMountedRef.current) return;
     
     setEmergencyMode(true);
@@ -273,10 +281,10 @@ export const useObjectDetection = () => {
         }, 20000) as unknown as NodeJS.Timeout;
       }, 300);
     }
-  };
+  }, [emergencyMode, updateEmergencyStatus]);
 
   // Handle detection results with improved performance
-  const handleDetectionResults = (results: any) => {
+  const handleDetectionResults = useCallback((results: any) => {
     if (!isMountedRef.current) return;
     
     const now = Date.now();
@@ -330,9 +338,9 @@ export const useObjectDetection = () => {
         updateLaneOffset(results.lanes);
       }
     }
-  };
+  }, [confidenceThreshold, emergencyMode, updateDetectedObjects, updateLaneOffset]);
 
-  const toggleObjectDetection = () => {
+  const toggleObjectDetection = useCallback(() => {
     if (!isMountedRef.current) return;
     
     const newState = !objectDetectionEnabled;
@@ -360,7 +368,7 @@ export const useObjectDetection = () => {
         });
       }
     }
-  };
+  }, [objectDetectionEnabled, emergencyMode, updateCO2Savings, updateEmergencyStatus]);
 
   return {
     canvasRef,

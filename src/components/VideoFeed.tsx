@@ -46,6 +46,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
   const safeOperationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const visibilityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mapApiKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
 
   // Handle saving the map API key with debounce
   const handleSaveMapApiKey = useCallback(() => {
@@ -183,7 +184,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     });
   }, [handleFileUpload, isUpdatingVideo]);
 
-  // Handle visibility changes safely 
+  // Handle visibility changes safely with improved cleanup
   useEffect(() => {
     if (!isMountedRef.current || unmountingRef.current) return;
     
@@ -228,16 +229,20 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
     };
   }, [videoRef, isCameraActive]);
 
-  // Create stable keys for elements to help React with reconciliation
-  // Use a combination of state values that would require a re-render
-  const videoKey = `video-${isCameraActive ? 'camera' : `file-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1) || 'default'}`}-${isLoaded ? 'loaded' : 'loading'}-${Date.now()}`;
-  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${isLoaded ? 'loaded' : 'loading'}-${Date.now()}`;
-  const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${Date.now()}`;
-  const mapApiModalKey = `map-api-modal-${showMapApiInput ? 'show' : 'hidden'}-${Date.now()}`;
-  const loadingStateKey = `loading-state-${isLoaded ? 'loaded' : 'loading'}-${error ? 'error' : 'normal'}-${Date.now()}`;
+  // Stop using time-based keys which can cause reconciliation issues
+  // Instead use stable keys based on state transitions
+  const videoKey = `video-${isCameraActive ? 'camera' : 'file'}-${videoSrc.substring(videoSrc.lastIndexOf('/') + 1) || 'default'}`;
+  const videoCanvasKey = `canvas-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}-${isLoaded ? 'loaded' : 'loading'}`;
+  const videoControlsKey = `controls-${isCameraActive ? 'camera' : 'file'}-${objectDetectionEnabled ? 'detection' : 'normal'}`;
+  const mapApiModalKey = `map-api-modal-${showMapApiInput ? 'show' : 'hidden'}`;
+  const loadingStateKey = `loading-state-${isLoaded ? 'loaded' : 'loading'}-${error ? 'error' : 'normal'}`;
 
   return (
-    <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}>
+    <div 
+      ref={videoContainerRef}
+      className={`relative bg-gray-900 rounded-lg overflow-hidden ${className || ''}`}
+      key="video-feed-container"
+    >
       {/* Video element with stable key */}
       {videoRef && (
         <video
@@ -286,7 +291,7 @@ const VideoFeed: React.FC<VideoFeedProps> = ({ className }) => {
         </div>
       )}
 
-      {/* Map API key input modal */}
+      {/* Map API key input modal - Only render when needed */}
       {showMapApiInput && (
         <MapApiKeyModal
           key={mapApiModalKey}
