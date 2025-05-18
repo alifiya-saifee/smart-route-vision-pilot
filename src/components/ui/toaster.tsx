@@ -8,13 +8,13 @@ import {
   ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 export function Toaster() {
   const { toasts, dismiss } = useToast()
   const mountedRef = useRef(true)
   const toastIdMapRef = useRef(new Map<string, string>())
-  const lastToastsRef = useRef<any[]>([])
+  const [, setRenderCounter] = useState(0)
   
   // Track component mount state to prevent updates after unmount
   useEffect(() => {
@@ -23,26 +23,36 @@ export function Toaster() {
     // Listen for clear-toasts events
     const handleClearToasts = () => {
       if (mountedRef.current && toasts && dismiss) {
-        // Schedule toast dismissal with RAF to ensure DOM is ready
+        // Schedule toast dismissal with double RAF to ensure DOM is ready
+        // This technique helps avoid React state/DOM inconsistency issues
         requestAnimationFrame(() => {
-          if (!mountedRef.current) return;
-          
-          // Clone the array to avoid mutation during iteration
-          const toastIds = [...toasts].map(t => t.id).filter(Boolean);
-          toastIds.forEach(id => {
-            if (id) {
-              try {
-                dismiss(id);
-              } catch (err) {
-                console.error("Error dismissing toast:", err);
+          requestAnimationFrame(() => {
+            if (!mountedRef.current) return;
+            
+            // Clone the array to avoid mutation during iteration
+            const toastIds = [...toasts].map(t => t.id).filter(Boolean);
+            toastIds.forEach(id => {
+              if (id) {
+                try {
+                  dismiss(id);
+                } catch (err) {
+                  console.error("Error dismissing toast:", err);
+                }
               }
-            }
+            });
           });
         });
       }
     };
     
     document.addEventListener('clear-toasts', handleClearToasts);
+    
+    // Force a re-render once after mounting to ensure proper initialization
+    requestAnimationFrame(() => {
+      if (mountedRef.current) {
+        setRenderCounter(c => c + 1);
+      }
+    });
     
     return () => {
       mountedRef.current = false;
@@ -69,18 +79,25 @@ export function Toaster() {
         toastIdMapRef.current.delete(id);
       }
     });
-    
-    lastToastsRef.current = [...toasts];
   }, [toasts]);
+
+  // Safely render toasts with stable keys
+  const safeToasts = toasts.map(function ({ id, title, description, action, ...props }) {
+    // Get stable key for this toast ID to prevent React reconciliation issues
+    const stableKey = id ? toastIdMapRef.current.get(id) || `toast-${id}-${Date.now()}` : `toast-unknown-${Date.now()}`;
+    
+    return {
+      key: stableKey,
+      toast: { id, title, description, action, ...props }
+    };
+  });
 
   return (
     <ToastProvider>
-      {toasts.map(function ({ id, title, description, action, ...props }) {
-        // Get stable key for this toast ID to prevent React reconciliation issues
-        const stableKey = id ? toastIdMapRef.current.get(id) || `toast-${id}-${Date.now()}` : `toast-unknown-${Date.now()}`;
-        
+      {safeToasts.map(({key, toast}) => {
+        const { id, title, description, action, ...props } = toast;
         return (
-          <Toast key={stableKey} {...props}>
+          <Toast key={key} {...props}>
             <div className="grid gap-1">
               {title && <ToastTitle>{title}</ToastTitle>}
               {description && (
@@ -90,7 +107,7 @@ export function Toaster() {
             {action}
             <ToastClose />
           </Toast>
-        )
+        );
       })}
       <ToastViewport />
     </ToastProvider>

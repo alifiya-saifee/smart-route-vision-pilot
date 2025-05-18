@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import VideoFeedWrapper from '@/components/video/VideoFeedWrapper';
 import NavigationPanel from '@/components/NavigationPanel';
 import LanePositionIndicator from '@/components/LanePositionIndicator';
@@ -11,17 +11,30 @@ import RouteMap from '@/components/RouteMap';
 import { clearToasts } from '@/components/ui/use-toast';
 
 const Index = () => {
-  // Clear any stale toasts on mount and unmount
+  const isMounted = useRef(true);
+  
+  // Clear any stale toasts on mount and unmount with improved safety
   useEffect(() => {
+    // Set mounted flag
+    isMounted.current = true;
+    
     // Wait for component to fully mount before clearing toasts
     const timerId = setTimeout(() => {
-      clearToasts();
-    }, 100);
+      if (isMounted.current) {
+        clearToasts();
+      }
+    }, 300); // Increased timeout for better stability
     
     return () => {
+      // Set unmounted flag first
+      isMounted.current = false;
       clearTimeout(timerId);
-      // Clear toasts on unmount to prevent state conflicts
-      clearToasts();
+      
+      // Use requestAnimationFrame to ensure DOM is in a stable state
+      requestAnimationFrame(() => {
+        // Clear toasts on unmount to prevent state conflicts
+        clearToasts();
+      });
     };
   }, []);
   
