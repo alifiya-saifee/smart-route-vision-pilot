@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import DetectionService from '@/services/DetectionService';
@@ -32,6 +33,7 @@ export const useObjectDetection = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingData, setRecordingData] = useState<Blob[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoStreamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
 
   // Track component mount state - this needs to be the first effect
@@ -75,6 +77,26 @@ export const useObjectDetection = () => {
       if (co2UpdateIntervalRef.current) {
         clearInterval(co2UpdateIntervalRef.current);
         co2UpdateIntervalRef.current = null;
+      }
+      
+      // Stop any active recording
+      if (mediaRecorderRef.current && isRecording) {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          console.error("Error stopping media recorder:", e);
+        }
+        mediaRecorderRef.current = null;
+      }
+      
+      // Stop any active media stream
+      if (videoStreamRef.current) {
+        try {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+        } catch (e) {
+          console.error("Error stopping video stream:", e);
+        }
+        videoStreamRef.current = null;
       }
       
       // Clear video element reference
@@ -337,13 +359,26 @@ export const useObjectDetection = () => {
     }
   }, [emergencyMode, updateEmergencyStatus]);
 
-  // Start recording function
+  // Start recording function - fixed to work without captureStream
   const startRecording = useCallback(() => {
     if (isRecording || !videoElementRef.current || !isMountedRef.current) return;
-    
+
     try {
-      const stream = videoElementRef.current.captureStream();
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      // Create a canvas element to draw video frames
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const video = videoElementRef.current;
+      
+      // Set canvas dimensions to match video
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      
+      // Create a stream from the canvas
+      const canvasStream = canvas.captureStream(30); // 30fps
+      videoStreamRef.current = canvasStream;
+      
+      // Create media recorder from canvas stream
+      const recorder = new MediaRecorder(canvasStream, { mimeType: 'video/webm' });
       
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => {
@@ -354,6 +389,16 @@ export const useObjectDetection = () => {
       
       recorder.onstop = () => {
         if (!isMountedRef.current) return;
+        
+        // Clean up the canvas stream
+        if (videoStreamRef.current) {
+          try {
+            videoStreamRef.current.getTracks().forEach(track => track.stop());
+          } catch (e) {
+            console.error("Error stopping tracks:", e);
+          }
+          videoStreamRef.current = null;
+        }
         
         const blob = new Blob(chunks, { type: 'video/webm' });
         const url = URL.createObjectURL(blob);
@@ -377,9 +422,30 @@ export const useObjectDetection = () => {
         }
       };
       
+      // Start recorder
       recorder.start(1000); // Collect data every second
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
+      
+      // Start drawing video frames to canvas
+      const drawVideoFrame = () => {
+        if (!isMountedRef.current || !isRecording || !ctx || !video) return;
+        
+        try {
+          // Draw current video frame to canvas
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Continue drawing frames as long as recording
+          if (isRecording && isMountedRef.current) {
+            requestAnimationFrame(drawVideoFrame);
+          }
+        } catch (e) {
+          console.error("Error drawing video frame:", e);
+        }
+      };
+      
+      // Start the drawing loop
+      drawVideoFrame();
       
       toast({
         title: "Recording started",
@@ -400,6 +466,17 @@ export const useObjectDetection = () => {
     try {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current = null;
+      
+      // Stop all tracks in the canvas stream
+      if (videoStreamRef.current) {
+        try {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+        } catch (e) {
+          console.error("Error stopping stream tracks:", e);
+        }
+        videoStreamRef.current = null;
+      }
+      
       setIsRecording(false);
     } catch (error) {
       console.error('Failed to stop recording:', error);
